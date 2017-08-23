@@ -1,0 +1,16 @@
+KS8995 Switch
+
+Required Properties:
+  - compatible : Compatible list
+
+Optional Properties:
+  - pwrdn-gpios : Specifies a GPIO for the chip PWRDN line
+  - reset-gpios : Specifies a GPIO for the chip #RESET line
+
+Example:
+
+switch@0 {
+	compatible = "spi-ks8995";
+	pwrdn-gpios = <&gpio0 0 0>;
+	reset-gpios = <&gpio0 1 0>;
+};

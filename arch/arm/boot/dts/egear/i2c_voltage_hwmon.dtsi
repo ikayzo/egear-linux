@@ -1,0 +1,9 @@
+/*
+ * Device tree configuration for Microchip I2C 3221 voltage monitor
+ */
+&i2c1 {
+	voltage0: voltage@0 {
+		compatible = "mcp3221";
+		reg = <0x4d>;
+	};
+};

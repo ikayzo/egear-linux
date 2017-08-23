@@ -165,7 +165,7 @@ static int dsa_slave_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	struct dsa_slave_priv *p = netdev_priv(dev);
 
-	if (p->phy != NULL)
+	if (p->phy)
 		return phy_mii_ioctl(p->phy, ifr, cmd);
 
 	return -EOPNOTSUPP;
@@ -180,7 +180,7 @@ dsa_slave_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	int err;
 
 	err = -EOPNOTSUPP;
-	if (p->phy != NULL) {
+	if (p->phy && p->phy->drv) {
 		err = phy_read_status(p->phy);
 		if (err == 0)
 			err = phy_ethtool_gset(p->phy, cmd);
@@ -194,7 +194,7 @@ dsa_slave_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 {
 	struct dsa_slave_priv *p = netdev_priv(dev);
 
-	if (p->phy != NULL)
+	if (p->phy && p->phy->drv)
 		return phy_ethtool_sset(p->phy, cmd);
 
 	return -EOPNOTSUPP;
@@ -213,7 +213,7 @@ static int dsa_slave_nway_reset(struct net_device *dev)
 {
 	struct dsa_slave_priv *p = netdev_priv(dev);
 
-	if (p->phy != NULL)
+	if (p->phy && p->phy->drv)
 		return genphy_restart_aneg(p->phy);
 
 	return -EOPNOTSUPP;
@@ -223,7 +223,7 @@ static u32 dsa_slave_get_link(struct net_device *dev)
 {
 	struct dsa_slave_priv *p = netdev_priv(dev);
 
-	if (p->phy != NULL) {
+	if (p->phy) {
 		genphy_update_link(p->phy);
 		return p->phy->link;
 	}
@@ -329,6 +329,18 @@ static const struct net_device_ops trailer_netdev_ops = {
 	.ndo_do_ioctl		= dsa_slave_ioctl,
 };
 #endif
+#ifdef CONFIG_NET_DSA_TAG_VID
+static const struct net_device_ops vid_netdev_ops = {
+	.ndo_init		= dsa_slave_init,
+	.ndo_open	 	= dsa_slave_open,
+	.ndo_stop		= dsa_slave_close,
+	.ndo_start_xmit		= vid_xmit,
+	.ndo_change_rx_flags	= dsa_slave_change_rx_flags,
+	.ndo_set_rx_mode	= dsa_slave_set_rx_mode,
+	.ndo_set_mac_address	= dsa_slave_set_mac_address,
+	.ndo_do_ioctl		= dsa_slave_ioctl,
+};
+#endif
 
 /* slave device setup *******************************************************/
 struct net_device *
@@ -366,6 +378,11 @@ dsa_slave_create(struct dsa_switch *ds, struct device *parent,
 		slave_dev->netdev_ops = &trailer_netdev_ops;
 		break;
 #endif
+#ifdef CONFIG_NET_DSA_TAG_VID
+	case htons(ETH_P_8021Q):
+		slave_dev->netdev_ops = &vid_netdev_ops;
+		break;
+#endif
 	default:
 		BUG();
 	}
@@ -388,7 +405,6 @@ dsa_slave_create(struct dsa_switch *ds, struct device *parent,
 	}
 
 	netif_carrier_off(slave_dev);
-
 	if (p->phy != NULL) {
 		phy_attach(slave_dev, dev_name(&p->phy->dev),
 			   PHY_INTERFACE_MODE_GMII);
@@ -397,7 +413,8 @@ dsa_slave_create(struct dsa_switch *ds, struct device *parent,
 		p->phy->speed = 0;
 		p->phy->duplex = 0;
 		p->phy->advertising = p->phy->supported | ADVERTISED_Autoneg;
-		phy_start_aneg(p->phy);
+		if (p->phy->drv)
+			phy_start_aneg(p->phy);
 	}
 
 	return slave_dev;

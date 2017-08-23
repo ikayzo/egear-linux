@@ -1,0 +1,90 @@
+/*
+ * Copyright 2014 Etherios Wireless Design
+ *
+ * SPI Bus to Ethernet switch.
+ *
+ * The IMX28 hardware SSP engine does not support GPIO chip selects, so there
+ * is no way to use it and trigger the CS for the Ethernet switch on GPIO_1_28.
+ * Therefore, we're using the bitbanged SPI. In this application the extra
+ * overhead and lower speed are not an issue - we send only a small amount of
+ * configuration data to the switch.
+ */
+
+/ {
+	apb@80000000 {
+		apbh@80000000 {
+			pinctrl@80018000 {
+				spi_gpio: spi_gpio@0 {
+					reg = <0>;
+					fsl,pinmux-ids = <
+						0x11c3 /* MX28_PAD_LCD_VSYNC__GPIO_1_28 */
+						0x20c3 /* MX28_PAD_SSP1_SCK__GPIO_2_12 */
+						0x20d3 /* MX28_PAD_SSP1_CMD__GPIO_2_13 */
+						0x20e3 /* MX28_PAD_SSP1_DATA0__GPIO_2_14 */
+					>;
+					fsl,drive-strength = <1>;
+					fsl,voltage = <1>;
+					fsl,pull-up = <1>;
+				};
+			};
+		};
+	};
+
+	spi1 {
+		compatible = "spi-gpio";
+		#address-cells = <1>;
+		ranges;
+		pinctrl-0 = <&spi_gpio>;
+
+		gpio-sck = <&gpio2 12 0>;
+		gpio-mosi = <&gpio2 13 0>;
+		gpio-miso = <&gpio2 14 0>;
+		cs-gpios = <&gpio1 28 0>;
+		num-chipselects = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		ethernet-switch@0 {
+			compatible = "spi-ks8895";
+			spi-max-frequency = <1000000>;
+			reg = <0>;
+			status = "okay";
+			pwrdn-gpios = <&gpioe0 13 0>;
+			reset-gpios = <&gpioe0 14 0>;
+		};
+	};
+
+	dsa {
+		compatible = "marvell,dsa";
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		dsa,ethernet = <&mac0>;
+
+		switch0 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0 0>;
+
+			port0 {
+				reg = <0>;
+				label = "cpu";
+			};
+
+			port1 {
+				reg = <1>;
+				label = "eth1";
+			};
+
+			port2 {
+				reg = <2>;
+				label = "eth2";
+			};
+
+			port3 {
+				reg = <3>;
+				label = "eth3";
+			};
+		};
+	};
+};

@@ -363,7 +363,7 @@ static void dsa_of_free_platform_data(struct dsa_platform_data *pd)
 static int dsa_of_probe(struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;
-	struct device_node *child, *mdio, *ethernet, *port, *link;
+	struct device_node *child, *ethernet, *port, *link;
 	struct mii_bus *mdio_bus;
 	struct platform_device *ethernet_dev;
 	struct dsa_platform_data *pd;
@@ -373,14 +373,6 @@ static int dsa_of_probe(struct platform_device *pdev)
 	const unsigned int *sw_addr, *port_reg;
 	int ret;
 
-	mdio = of_parse_phandle(np, "dsa,mii-bus", 0);
-	if (!mdio)
-		return -EINVAL;
-
-	mdio_bus = of_mdio_find_bus(mdio);
-	if (!mdio_bus)
-		return -EINVAL;
-
 	ethernet = of_parse_phandle(np, "dsa,ethernet", 0);
 	if (!ethernet)
 		return -EINVAL;
@@ -388,6 +380,10 @@ static int dsa_of_probe(struct platform_device *pdev)
 	ethernet_dev = of_find_device_by_node(ethernet);
 	if (!ethernet_dev)
 		return -ENODEV;
+
+	mdio_bus = dev_to_mii_bus(&ethernet_dev->dev);
+	if (!mdio_bus)
+		return -EINVAL;
 
 	pd = kzalloc(sizeof(*pd), GFP_KERNEL);
 	if (!pd)
@@ -642,12 +638,18 @@ static int __init dsa_init_module(void)
 #ifdef CONFIG_NET_DSA_TAG_TRAILER
 	dev_add_pack(&trailer_packet_type);
 #endif
+#ifdef CONFIG_NET_DSA_TAG_VID
+	dev_add_pack(&vid_packet_type);
+#endif
 	return 0;
 }
 module_init(dsa_init_module);
 
 static void __exit dsa_cleanup_module(void)
 {
+#ifdef CONFIG_NET_DSA_TAG_VID
+	dev_remove_pack(&vid_packet_type);
+#endif
 #ifdef CONFIG_NET_DSA_TAG_TRAILER
 	dev_remove_pack(&trailer_packet_type);
 #endif

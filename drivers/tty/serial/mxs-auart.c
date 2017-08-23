@@ -562,6 +562,7 @@ static void dma_rx_callback(void *arg)
 	dma_unmap_sg(s->dev, &s->rx_sgl, 1, DMA_FROM_DEVICE);
 
 	stat = readl(s->port.membase + AUART_STAT);
+
 	stat &= ~(AUART_STAT_OERR | AUART_STAT_BERR |
 			AUART_STAT_PERR | AUART_STAT_FERR);
 
@@ -587,7 +588,7 @@ static int mxs_auart_dma_prep_rx(struct mxs_auart_port *s)
 
 	/* [1] : send PIO */
 	pio[0] = AUART_CTRL0_RXTO_ENABLE
-		| AUART_CTRL0_RXTIMEOUT(0x80)
+		| AUART_CTRL0_RXTIMEOUT(0x03)
 		| AUART_CTRL0_XFER_COUNT(UART_XMIT_SIZE);
 	desc = dmaengine_prep_slave_sg(channel, (struct scatterlist *)pio,
 					1, DMA_TRANS_NONE, 0);
@@ -760,7 +761,7 @@ static void mxs_auart_settermios(struct uart_port *u,
 			ctrl |= AUART_LINECTRL_EPS;
 	}
 
-	u->read_status_mask = 0;
+	u->read_status_mask = AUART_STAT_OERR;
 
 	if (termios->c_iflag & INPCK)
 		u->read_status_mask |= AUART_STAT_PERR;
@@ -1286,6 +1287,8 @@ static int serial_mxs_probe_dt(struct mxs_auart_port *s,
 
 	if (!of_property_read_bool(np, "fsl,disable-dma"))
 		s->flags |= MXS_AUART_DMA_CONFIG;
+	else
+		dev_info(&pdev->dev, "DMA disabled");
 
 	return 0;
 }

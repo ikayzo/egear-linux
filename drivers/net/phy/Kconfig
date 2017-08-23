@@ -177,7 +177,3 @@ config MDIO_BUS_MUX_MMIOREG
 	  Currently, only 8-bit registers are supported.
 
 endif # PHYLIB
-
-config MICREL_KS8995MA
-	tristate "Micrel KS8995MA 5-ports 10/100 managed Ethernet switch"
-	depends on SPI

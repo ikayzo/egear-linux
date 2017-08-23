@@ -56,5 +56,8 @@ extern struct packet_type edsa_packet_type;
 netdev_tx_t trailer_xmit(struct sk_buff *skb, struct net_device *dev);
 extern struct packet_type trailer_packet_type;
 
+/* tag_vid.c */
+netdev_tx_t vid_xmit(struct sk_buff *skb, struct net_device *dev);
+extern struct packet_type vid_packet_type;
 
 #endif

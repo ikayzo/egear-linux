@@ -36,4 +36,13 @@ config NET_DSA_MV88E6123_61_65
 	  This enables support for the Marvell 88E6123/6161/6165
 	  ethernet switch chips.
 
+config NET_DSA_KS8895
+	tristate "Micrel ks8895 ethernet switch chip support"
+	depends on SPI
+	select NET_DSA
+	select NET_DSA_TAG_VID
+	---help---
+	  This enables support for the Micrel ks8895 ethernet switch
+	  chip.
+
 endmenu
