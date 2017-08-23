@@ -309,9 +309,6 @@ static int mxsfb_check_var(struct fb_var_screeninfo *var,
 			break;
 		case STMLCDIF_16BIT:
 		case STMLCDIF_18BIT:
-			/* 24 bit to 18 bit mapping */
-			rgb = def_rgb666;
-			break;
 		case STMLCDIF_24BIT:
 			/* real 24 bit */
 			rgb = def_rgb888;
@@ -453,11 +450,6 @@ static int mxsfb_set_par(struct fb_info *fb_info)
 			return -EINVAL;
 		case STMLCDIF_16BIT:
 		case STMLCDIF_18BIT:
-			/* 24 bit to 18 bit mapping */
-			ctrl |= CTRL_DF24; /* ignore the upper 2 bits in
-					    *  each colour component
-					    */
-			break;
 		case STMLCDIF_24BIT:
 			/* real 24 bit */
 			break;
@@ -1003,10 +995,38 @@ static void mxsfb_shutdown(struct platform_device *pdev)
 	writel(CTRL_RUN, host->base + LCDC_CTRL + REG_CLR);
 }
 
+#ifdef CONFIG_PM
+static int mxsfb_suspend(struct platform_device *pdev, pm_message_t state)
+{
+	struct fb_info *fb_info = platform_get_drvdata(pdev);
+	struct mxsfb_info *host = to_imxfb_host(fb_info);
+
+	if (host->enabled)
+		mxsfb_disable_controller(fb_info);
+
+	return 0;
+}
+
+static int mxsfb_resume(struct platform_device *pdev)
+{
+	struct fb_info *fb_info = platform_get_drvdata(pdev);
+	struct mxsfb_info *host = to_imxfb_host(fb_info);
+
+	if (!host->enabled)
+		mxsfb_enable_controller(fb_info);
+
+	return 0;
+}
+#endif /* CONFIG_PM */
+
 static struct platform_driver mxsfb_driver = {
 	.probe = mxsfb_probe,
 	.remove = mxsfb_remove,
 	.shutdown = mxsfb_shutdown,
+#ifdef CONFIG_PM
+	.suspend = mxsfb_suspend,
+	.resume = mxsfb_resume,
+#endif
 	.id_table = mxsfb_devtype,
 	.driver = {
 		   .name = DRIVER_NAME,

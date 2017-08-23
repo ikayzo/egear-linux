@@ -88,6 +88,11 @@
 
 #endif /* CONFIG_M5272 */
 
+#define BF(value, field) (((value) << BP_##field) & BM_##field)
+#define BP_FEC_MII_SPEED_HOLDTIME	8
+#define BM_FEC_MII_SPEED_HOLDTIME	0x700
+#define BP_FEC_MII_SPEED_MII_SPEED	1
+#define BM_FEC_MII_SPEED_MII_SPEED	0x7e
 
 /*
  *	Define the buffer descriptor structure.
@@ -182,7 +187,7 @@ struct bufdesc_ex {
  * the skbuffer directly.
  */
 
-#define FEC_ENET_RX_PAGES	8
+#define FEC_ENET_RX_PAGES	32
 #define FEC_ENET_RX_FRSIZE	2048
 #define FEC_ENET_RX_FRPPG	(PAGE_SIZE / FEC_ENET_RX_FRSIZE)
 #define RX_RING_SIZE		(FEC_ENET_RX_FRPPG * FEC_ENET_RX_PAGES)
@@ -247,6 +252,7 @@ struct fec_enet_private {
 	struct	phy_device *phy_dev;
 	int	mii_timeout;
 	uint	phy_speed;
+	uint	phy_holdtime;
 	phy_interface_t	phy_interface;
 	int	link;
 	int	full_duplex;
@@ -258,6 +264,15 @@ struct fec_enet_private {
 
 	struct	napi_struct napi;
 	int	csum_flags;
+
+	/* GPIO LEDs */
+	int gpio_linkled;
+	bool gpio_linkled_inverted;
+	int gpio_actled;
+	bool gpio_actled_inverted;
+	unsigned int rxtx_activity;
+	unsigned int rxtx_cnt;
+	struct timer_list activityled_timer;
 
 	struct ptp_clock *ptp_clock;
 	struct ptp_clock_info ptp_caps;

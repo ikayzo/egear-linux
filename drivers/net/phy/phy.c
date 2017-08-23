@@ -36,6 +36,7 @@
 #include <linux/timer.h>
 #include <linux/workqueue.h>
 #include <linux/mdio.h>
+#include <linux/micrel_phy.h>
 
 #include <linux/atomic.h>
 #include <asm/io.h>
@@ -352,21 +353,48 @@ int phy_mii_ioctl(struct phy_device *phydev,
 			case MII_BMCR:
 				if ((val & (BMCR_RESET|BMCR_ANENABLE)) == 0)
 					phydev->autoneg = AUTONEG_DISABLE;
-				else
+				else {
 					phydev->autoneg = AUTONEG_ENABLE;
-				if ((!phydev->autoneg) && (val & BMCR_FULLDPLX))
-					phydev->duplex = DUPLEX_FULL;
-				else
-					phydev->duplex = DUPLEX_HALF;
-				if ((!phydev->autoneg) &&
-						(val & BMCR_SPEED1000))
-					phydev->speed = SPEED_1000;
-				else if ((!phydev->autoneg) &&
-						(val & BMCR_SPEED100))
-					phydev->speed = SPEED_100;
+					phydev->link_timeout = PHY_AN_TIMEOUT;
+				}
+				if (!phydev->autoneg) {
+					if (val & BMCR_FULLDPLX)
+						phydev->duplex = DUPLEX_FULL;
+					else
+						phydev->duplex = DUPLEX_HALF;
+
+					if (val & BMCR_SPEED1000)
+						phydev->speed = SPEED_1000;
+					else if (val & BMCR_SPEED100)
+						phydev->speed = SPEED_100;
+					else
+						phydev->speed = SPEED_10;
+				}
 				break;
 			case MII_ADVERTISE:
-				phydev->advertising = val;
+				/* Convert PHY's advertising settings to ethtool
+				 * advertising settings
+				 */
+				phydev->advertising = 0;
+				if (val & ADVERTISE_10HALF)
+					phydev->advertising |=
+						ADVERTISED_10baseT_Half;
+				if (val & ADVERTISE_10FULL)
+					phydev->advertising |=
+						ADVERTISED_10baseT_Full;
+				if (val & ADVERTISE_100HALF)
+					phydev->advertising |=
+						ADVERTISED_100baseT_Half;
+				if (val & ADVERTISE_100FULL)
+					phydev->advertising |=
+						ADVERTISED_100baseT_Full;
+				if (val & ADVERTISE_PAUSE_CAP)
+					phydev->advertising |=
+						ADVERTISED_Pause;
+				if (val & ADVERTISE_PAUSE_ASYM)
+					phydev->advertising |=
+						ADVERTISED_Asym_Pause;
+
 				break;
 			default:
 				/* do nothing */
@@ -762,6 +790,7 @@ void phy_state_machine(struct work_struct *work)
 	struct delayed_work *dwork = to_delayed_work(work);
 	struct phy_device *phydev =
 			container_of(dwork, struct phy_device, state_queue);
+	struct phy_driver *pdrv = phydev->drv;
 	int needs_aneg = 0;
 	int err = 0;
 
@@ -818,6 +847,35 @@ void phy_state_machine(struct work_struct *work)
 			}
 			break;
 		case PHY_NOLINK:
+			/* If PHY is Micrel KSZ8051, KSZ8031, KSZ8021
+			 * and AN is enabled, disable AN, wait 500usec and
+			 * enable AN again to workaround PHY errata.
+			 */
+			if ( phydev->autoneg &&
+			    ((pdrv->phy_id & MICREL_PHY_ID_MASK) ==
+			     (PHY_ID_KSZ8031 & MICREL_PHY_ID_MASK)) ) {
+
+				if (0 == phydev->link_timeout--) {
+					int regval;
+
+					regval = phy_read(phydev, MII_BMCR);
+
+					/* Toggle ANE only for PHYs before rev A2 */
+					if ((pdrv->phy_id & 0x0000000F) < 6) {
+						phy_write(phydev, MII_BMCR,
+							regval & ~BMCR_ANENABLE);
+						udelay(500);
+						phy_write(phydev, MII_BMCR,
+							regval | BMCR_ANENABLE);
+					}
+					else {
+						phy_write(phydev, MII_BMCR,
+							regval | BMCR_ANRESTART);
+					}
+
+					phydev->link_timeout = PHY_AN_TIMEOUT;
+				}
+			}
 			err = phy_read_status(phydev);
 
 			if (err)

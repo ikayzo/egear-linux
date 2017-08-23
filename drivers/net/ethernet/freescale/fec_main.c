@@ -60,6 +60,8 @@
 
 #include "fec.h"
 
+static void set_multicast_list(struct net_device *ndev);
+
 #if defined(CONFIG_ARM)
 #define FEC_ALIGNMENT	0xf
 #else
@@ -218,7 +220,51 @@ MODULE_PARM_DESC(macaddr, "FEC Ethernet MAC address");
 #define FEC_PAUSE_FLAG_AUTONEG	0x1
 #define FEC_PAUSE_FLAG_ENABLE	0x2
 
+/* GPIO activity LED constants */
+#define ACTLED_TOGGLE_TIMEOUT	2	/* in jiffies */
+#define ACTLED_OFF_TIMEOUT	20	/* in jiffies */
+
 static int mii_cnt;
+
+static void toggle_activityled(struct net_device *ndev)
+{
+	struct fec_enet_private *fep = netdev_priv(ndev);
+
+	if (fep->gpio_actled >= 0) {
+		fep->rxtx_activity = 1;
+		/* run timer if not already running */
+		if(!timer_pending(&fep->activityled_timer)) {
+			mod_timer(&fep->activityled_timer,
+				  jiffies + ACTLED_TOGGLE_TIMEOUT);
+		}
+	}
+}
+
+static void activityled_timer_fn(unsigned long ndev)
+{
+	struct fec_enet_private *fep = netdev_priv((struct net_device *)ndev);
+
+	if (fep->rxtx_activity) {
+		/* toggle RX/TX Ethernet activity LED */
+		gpio_set_value(fep->gpio_actled,
+			       !gpio_get_value(fep->gpio_actled));
+		mod_timer(&fep->activityled_timer,
+			  jiffies + ACTLED_TOGGLE_TIMEOUT);
+		fep->rxtx_cnt = 0;
+		fep->rxtx_activity = 0;
+	} else {
+		if(fep->rxtx_cnt++ < ACTLED_OFF_TIMEOUT / ACTLED_TOGGLE_TIMEOUT)
+			mod_timer(&fep->activityled_timer,
+				  jiffies + ACTLED_TOGGLE_TIMEOUT);
+		else {
+			/* switch LED off */
+			gpio_set_value(fep->gpio_actled,
+				       fep->gpio_actled_inverted);
+			fep->rxtx_cnt = 0;
+		}
+	}
+
+}
 
 static struct bufdesc *fec_enet_get_nextdesc(struct bufdesc *bdp, int is_ex)
 {
@@ -471,9 +517,8 @@ fec_restart(struct net_device *ndev, int duplex)
 	/* Clear any outstanding interrupt. */
 	writel(0xffc00000, fep->hwp + FEC_IEVENT);
 
-	/* Reset all multicast.	*/
-	writel(0, fep->hwp + FEC_GRP_HASH_TABLE_HIGH);
-	writel(0, fep->hwp + FEC_GRP_HASH_TABLE_LOW);
+	/* Setup multicast filter. */
+	set_multicast_list(ndev);
 #ifndef CONFIG_M5272
 	writel(0, fep->hwp + FEC_HASH_TABLE_HIGH);
 	writel(0, fep->hwp + FEC_HASH_TABLE_LOW);
@@ -513,8 +558,10 @@ fec_restart(struct net_device *ndev, int duplex)
 
 	fep->full_duplex = duplex;
 
-	/* Set MII speed */
-	writel(fep->phy_speed, fep->hwp + FEC_MII_SPEED);
+	/* Set MII speed and holdtime */
+	writel(BF(fep->phy_holdtime, FEC_MII_SPEED_HOLDTIME) |
+	       BF(fep->phy_speed, FEC_MII_SPEED_MII_SPEED),
+	       fep->hwp + FEC_MII_SPEED);
 
 #if !defined(CONFIG_M5272)
 	/* set RX checksum */
@@ -646,7 +693,9 @@ fec_stop(struct net_device *ndev)
 	/* Whack a reset.  We should wait for this. */
 	writel(1, fep->hwp + FEC_ECNTRL);
 	udelay(10);
-	writel(fep->phy_speed, fep->hwp + FEC_MII_SPEED);
+	writel(BF(fep->phy_holdtime, FEC_MII_SPEED_HOLDTIME) |
+	       BF(fep->phy_speed, FEC_MII_SPEED_MII_SPEED),
+	       fep->hwp + FEC_MII_SPEED);
 	writel(FEC_DEFAULT_IMASK, fep->hwp + FEC_IMASK);
 
 	/* We have to keep ENET enabled to have MII interrupt stay working */
@@ -735,6 +784,7 @@ fec_enet_tx(struct net_device *ndev)
 				ndev->stats.tx_carrier_errors++;
 		} else {
 			ndev->stats.tx_packets++;
+			ndev->stats.tx_bytes += bdp->cbd_datlen;
 		}
 
 		if (unlikely(skb_shinfo(skb)->tx_flags & SKBTX_IN_PROGRESS) &&
@@ -779,6 +829,9 @@ fec_enet_tx(struct net_device *ndev)
 				netif_wake_queue(ndev);
 		}
 	}
+
+	toggle_activityled(ndev);
+
 	return;
 }
 
@@ -835,8 +888,12 @@ fec_enet_rx(struct net_device *ndev, int budget)
 			}
 			if (status & BD_ENET_RX_NO)	/* Frame alignment */
 				ndev->stats.rx_frame_errors++;
-			if (status & BD_ENET_RX_CR)	/* CRC Error */
-				ndev->stats.rx_crc_errors++;
+			if (status & BD_ENET_RX_CR) {	/* CRC Error */
+				if (of_machine_is_compatible("digi,ccardimx28"))
+					ndev->stats.rx_errors--;
+				else
+					ndev->stats.rx_crc_errors++;
+			}
 			if (status & BD_ENET_RX_OV)	/* FIFO overrun */
 				ndev->stats.rx_fifo_errors++;
 		}
@@ -940,6 +997,8 @@ rx_processing_done:
 		writel(0, fep->hwp + FEC_R_DES_ACTIVE);
 	}
 	fep->cur_rx = bdp;
+
+	toggle_activityled(ndev);
 
 	return pkt_received;
 }
@@ -1066,6 +1125,13 @@ static void fec_get_mac(struct net_device *ndev)
 /*
  * Phy section
  */
+static void gpioled_phylink(struct fec_enet_private *fep)
+{
+	if (fep->gpio_linkled >= 0)
+		gpio_set_value(fep->gpio_linkled,
+			       fep->link ^ fep->gpio_linkled_inverted);
+}
+
 static void fec_enet_adjust_link(struct net_device *ndev)
 {
 	struct fec_enet_private *fep = netdev_priv(ndev);
@@ -1105,6 +1171,8 @@ static void fec_enet_adjust_link(struct net_device *ndev)
 
 	if (status_change)
 		phy_print_status(phy_dev);
+
+	gpioled_phylink(fep);
 }
 
 static int fec_enet_mdio_read(struct mii_bus *bus, int mii_id, int regnum)
@@ -1277,8 +1345,10 @@ static int fec_enet_mii_init(struct platform_device *pdev)
 	fep->phy_speed = DIV_ROUND_UP(clk_get_rate(fep->clk_ahb), 5000000);
 	if (id_entry->driver_data & FEC_QUIRK_ENET_MAC)
 		fep->phy_speed--;
-	fep->phy_speed <<= 1;
-	writel(fep->phy_speed, fep->hwp + FEC_MII_SPEED);
+	fep->phy_holdtime = DIV_ROUND_UP(clk_get_rate(fep->clk_ahb), 100000000);
+	writel(BF(fep->phy_holdtime, FEC_MII_SPEED_HOLDTIME) |
+	       BF(fep->phy_speed, FEC_MII_SPEED_MII_SPEED),
+	       fep->hwp + FEC_MII_SPEED);
 
 	fep->mii_bus = mdiobus_alloc();
 	if (fep->mii_bus == NULL) {
@@ -1446,6 +1516,17 @@ static int fec_enet_set_pauseparam(struct net_device *ndev,
 
 #endif /* !defined(CONFIG_M5272) */
 
+static int fec_enet_nway_reset(struct net_device *dev)
+{
+	struct fec_enet_private *fep = netdev_priv(dev);
+	struct phy_device *phydev = fep->phy_dev;
+
+	if (!phydev)
+		return -ENODEV;
+
+	return genphy_restart_aneg(phydev);
+}
+
 static const struct ethtool_ops fec_enet_ethtool_ops = {
 #if !defined(CONFIG_M5272)
 	.get_pauseparam		= fec_enet_get_pauseparam,
@@ -1456,6 +1537,7 @@ static const struct ethtool_ops fec_enet_ethtool_ops = {
 	.get_drvinfo		= fec_enet_get_drvinfo,
 	.get_link		= ethtool_op_get_link,
 	.get_ts_info		= fec_enet_get_ts_info,
+	.nway_reset		= fec_enet_nway_reset,
 };
 
 static int fec_enet_ioctl(struct net_device *ndev, struct ifreq *rq, int cmd)
@@ -1598,6 +1680,7 @@ fec_enet_close(struct net_device *ndev)
 	}
 
 	fec_enet_free_buffers(ndev);
+	gpioled_phylink(fep);
 
 	return 0;
 }
@@ -1845,6 +1928,64 @@ static void fec_reset_phy(struct platform_device *pdev)
 	msleep(msec);
 	gpio_set_value(phy_reset, 1);
 }
+
+static void fec_gpio_led_init(struct platform_device *pdev)
+{
+	struct net_device *ndev = platform_get_drvdata(pdev);
+	struct fec_enet_private *fep = netdev_priv(ndev);
+	struct device_node *np = pdev->dev.of_node;
+	enum of_gpio_flags flags;
+	int init_st;
+
+	if (!np)
+		return;
+
+	fep->gpio_linkled = of_get_named_gpio_flags(np, "digi,gpio-link-led", 0,
+						    &flags);
+	if (fep->gpio_linkled >= 0) {
+		if (flags & OF_GPIO_ACTIVE_LOW) {
+			fep->gpio_linkled_inverted = 1;
+			init_st = GPIOF_OUT_INIT_HIGH;
+		}
+		else
+			init_st = GPIOF_OUT_INIT_LOW;
+
+		if (gpio_request_one(fep->gpio_linkled, init_st,
+				      "FEC link LED"))
+			printk("Unable to register gpio %d for link LED\n",
+			       fep->gpio_linkled);
+	}
+
+	fep->gpio_actled = of_get_named_gpio_flags(np, "digi,gpio-act-led", 0,
+						   &flags);
+	if (fep->gpio_actled >= 0) {
+		if (flags & OF_GPIO_ACTIVE_LOW) {
+			fep->gpio_actled_inverted = 1;
+			init_st = GPIOF_OUT_INIT_HIGH;
+		}
+		else
+			init_st = GPIOF_OUT_INIT_LOW;
+
+		if (gpio_request_one(fep->gpio_actled, init_st,
+				     "FEC activity LED")) {
+			printk("Unable to register gpio %d for activity LED\n",
+				fep->gpio_actled);
+		}
+		else {
+			if (flags & OF_GPIO_ACTIVE_LOW)
+				fep->gpio_actled_inverted = 1;
+			/* Initialize kernel timer for toggling the activity LED */
+			fep->rxtx_cnt = 0;
+			fep->activityled_timer.data = (unsigned long)ndev;
+			fep->activityled_timer.function = activityled_timer_fn;
+			fep->activityled_timer.expires = jiffies +
+							 ACTLED_TOGGLE_TIMEOUT;
+			init_timer(&fep->activityled_timer);
+			add_timer(&fep->activityled_timer);
+		}
+	}
+
+}
 #else /* CONFIG_OF */
 static void fec_reset_phy(struct platform_device *pdev)
 {
@@ -1852,6 +1993,9 @@ static void fec_reset_phy(struct platform_device *pdev)
 	 * In case of platform probe, the reset has been done
 	 * by machine code.
 	 */
+}
+static inline void fec_gpio_led_init(struct platform_device *pdev)
+{
 }
 #endif /* CONFIG_OF */
 
@@ -1963,6 +2107,7 @@ fec_probe(struct platform_device *pdev)
 		}
 	}
 
+	fec_gpio_led_init(pdev);
 	fec_reset_phy(pdev);
 
 	if (fep->bufdesc_ex)
