@@ -31,3 +31,6 @@ EXPORT_SYMBOL(request_bus_freq);
 
 void release_bus_freq(enum bus_freq_mode mode) {};
 EXPORT_SYMBOL(release_bus_freq);
+
+int imx_gpc_mf_request_on(unsigned int irq, unsigned int on) { return 0; }
+EXPORT_SYMBOL_GPL(imx_gpc_mf_request_on);
