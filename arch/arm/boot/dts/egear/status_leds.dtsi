@@ -1,0 +1,29 @@
+/ {
+	apb@80000000 {
+		apbx@80040000 {
+			gpio-leds {
+				compatible = "gpio-leds";
+				status = "okay";
+
+				led0 {
+					label = "gateway:red:status";
+					gpios = <&gpioe0 5 1>;
+					default-state = "off";
+
+					/* Use timer trigger to cause LED to blink at boot */
+					linux,default-trigger = "timer";
+				};
+
+				led1 {
+					label = "gateway:green:status";
+					gpios = <&gpioe0 6 1>;
+					default-state = "off";
+
+					/* Use timer trigger to cause LED to blink at boot */
+					linux,default-trigger = "timer";
+				};
+			};
+		};
+	};
+};
+
