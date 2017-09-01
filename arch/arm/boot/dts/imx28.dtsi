@@ -38,14 +38,21 @@
 	};
 
 	cpus {
+		compatible = "simple-bus";
 		#address-cells = <0>;
 		#size-cells = <0>;
 
 		cpu {
-			compatible = "arm,arm926ej-s";
+                        compatible = "arm,arm926ej-s", "simple-bus";
 			device_type = "cpu";
+                        sram = <&ocram>;
 		};
 	};
+
+        ocram: ocram@00000000 {
+                compatible = "mmio-sram";
+                reg = <0x00000000 0x20000>;
+        };
 
 	apb@80000000 {
 		compatible = "simple-bus";
@@ -230,6 +237,17 @@
 					fsl,pull-up = <MXS_PULL_DISABLE>;
 				};
 
+				duart_pins_c: duart@2 {
+					reg = <2>;
+					fsl,pinmux-ids = <
+						MX28_PAD_I2C0_SCL__DUART_RX
+						MX28_PAD_I2C0_SDA__DUART_TX
+					>;
+					fsl,drive-strength = <MXS_DRIVE_4mA>;
+					fsl,voltage = <MXS_VOLTAGE_HIGH>;
+					fsl,pull-up = <MXS_PULL_DISABLE>;
+				};
+
 				duart_4pins_a: duart-4pins@0 {
 					reg = <0>;
 					fsl,pinmux-ids = <
@@ -394,7 +412,20 @@
 					fsl,pull-up = <MXS_PULL_DISABLE>;
 				};
 
-				auart4_2pins_a: auart4@0 {
+				auart4_pins_a: auart4@0 {
+					reg = <0>;
+					fsl,pinmux-ids = <
+						MX28_PAD_SAIF0_BITCLK__AUART4_RX
+						MX28_PAD_SAIF0_SDATA0__AUART4_TX
+						MX28_PAD_SAIF0_MCLK__AUART4_CTS
+						MX28_PAD_SAIF0_LRCLK__AUART4_RTS
+					>;
+					fsl,drive-strength = <MXS_DRIVE_4mA>;
+					fsl,voltage = <MXS_VOLTAGE_HIGH>;
+					fsl,pull-up = <MXS_PULL_DISABLE>;
+				};
+
+				auart4_2pins_a: auart4-2pins@0 {
 					reg = <0>;
 					fsl,pinmux-ids = <
 						MX28_PAD_SSP3_SCK__AUART4_TX
@@ -450,7 +481,6 @@
 						MX28_PAD_SSP0_DATA6__SSP0_D6
 						MX28_PAD_SSP0_DATA7__SSP0_D7
 						MX28_PAD_SSP0_CMD__SSP0_CMD
-						MX28_PAD_SSP0_DETECT__SSP0_CARD_DETECT
 						MX28_PAD_SSP0_SCK__SSP0_SCK
 					>;
 					fsl,drive-strength = <MXS_DRIVE_8mA>;
@@ -466,7 +496,6 @@
 						MX28_PAD_SSP0_DATA2__SSP0_D2
 						MX28_PAD_SSP0_DATA3__SSP0_D3
 						MX28_PAD_SSP0_CMD__SSP0_CMD
-						MX28_PAD_SSP0_DETECT__SSP0_CARD_DETECT
 						MX28_PAD_SSP0_SCK__SSP0_SCK
 					>;
 					fsl,drive-strength = <MXS_DRIVE_8mA>;
@@ -478,6 +507,8 @@
 					fsl,pinmux-ids = <
 						MX28_PAD_SSP0_DETECT__SSP0_CARD_DETECT
 					>;
+					fsl,drive-strength = <MXS_DRIVE_8mA>;
+					fsl,voltage = <MXS_VOLTAGE_HIGH>;
 					fsl,pull-up = <MXS_PULL_DISABLE>;
 				};
 
@@ -497,7 +528,6 @@
 						MX28_PAD_GPMI_D02__SSP1_D2
 						MX28_PAD_GPMI_D03__SSP1_D3
 						MX28_PAD_GPMI_RDY1__SSP1_CMD
-						MX28_PAD_GPMI_RDY0__SSP1_CARD_DETECT
 						MX28_PAD_GPMI_WRN__SSP1_SCK
 					>;
 					fsl,drive-strength = <MXS_DRIVE_8mA>;
@@ -550,6 +580,21 @@
 					>;
 					fsl,drive-strength = <MXS_DRIVE_12mA>;
 					fsl,pull-up = <MXS_PULL_DISABLE>;
+				};
+
+				mmc2_4bit_pins_b: mmc2-4bit@1 {
+					reg = <1>;
+					fsl,pinmux-ids = <
+						MX28_PAD_SSP0_DATA4__SSP2_D0
+						MX28_PAD_SSP2_SS1__SSP2_D1
+						MX28_PAD_SSP2_SS2__SSP2_D2
+						MX28_PAD_SSP0_DATA5__SSP2_D3
+						MX28_PAD_SSP0_DATA6__SSP2_CMD
+						MX28_PAD_SSP0_DATA7__SSP2_SCK
+					>;
+					fsl,drive-strength = <MXS_DRIVE_8mA>;
+					fsl,voltage = <MXS_VOLTAGE_HIGH>;
+					fsl,pull-up = <MXS_PULL_ENABLE>;
 				};
 
 				i2c0_pins_a: i2c0@0 {
@@ -631,10 +676,30 @@
 					fsl,pull-up = <MXS_PULL_ENABLE>;
 				};
 
+				saif1_pins_b: saif1@1 {
+					reg = <1>;
+					fsl,pinmux-ids = <
+						MX28_PAD_LCD_VSYNC__SAIF1_SDATA0
+					>;
+					fsl,drive-strength = <MXS_DRIVE_12mA>;
+					fsl,voltage = <MXS_VOLTAGE_HIGH>;
+					fsl,pull-up = <MXS_PULL_ENABLE>;
+				};
+
 				pwm0_pins_a: pwm0@0 {
 					reg = <0>;
 					fsl,pinmux-ids = <
 						MX28_PAD_PWM0__PWM_0
+					>;
+					fsl,drive-strength = <MXS_DRIVE_4mA>;
+					fsl,voltage = <MXS_VOLTAGE_HIGH>;
+					fsl,pull-up = <MXS_PULL_DISABLE>;
+				};
+
+				pwm0_pins_b: pwm0@1 {
+					reg = <1>;
+					fsl,pinmux-ids = <
+						MX28_PAD_AUART1_RX__PWM_0
 					>;
 					fsl,drive-strength = <MXS_DRIVE_4mA>;
 					fsl,voltage = <MXS_VOLTAGE_HIGH>;
@@ -801,6 +866,58 @@
 					fsl,pull-up = <MXS_PULL_DISABLE>;
 				};
 
+				spi0_pins_a: spi0@0 {
+					reg = <0>;
+					fsl,pinmux-ids = <
+						MX28_PAD_SSP0_SCK__SSP0_SCK
+						MX28_PAD_SSP0_CMD__SSP0_CMD
+						MX28_PAD_SSP0_DATA0__SSP0_D0
+						MX28_PAD_SSP1_DATA3__SSP1_D3
+					>;
+					fsl,drive-strength = <MXS_DRIVE_8mA>;
+					fsl,voltage = <MXS_VOLTAGE_HIGH>;
+					fsl,pull-up = <MXS_PULL_ENABLE>;
+				};
+
+				spi0_pins_b: spi0@1 {
+					reg = <1>;
+					fsl,pinmux-ids = <
+						MX28_PAD_SSP0_SCK__GPIO_2_10
+						MX28_PAD_SSP0_CMD__GPIO_2_8
+						MX28_PAD_SSP0_DATA0__GPIO_2_0
+						MX28_PAD_SSP0_DATA3__GPIO_2_3
+					>;
+					fsl,drive-strength = <MXS_DRIVE_8mA>;
+					fsl,voltage = <MXS_VOLTAGE_HIGH>;
+					fsl,pull-up = <MXS_PULL_ENABLE>;
+				};
+
+				spi1_pins_a: spi1@0 {
+					reg = <0>;
+					fsl,pinmux-ids = <
+						MX28_PAD_SSP1_SCK__SSP1_SCK
+						MX28_PAD_SSP1_CMD__SSP1_CMD
+						MX28_PAD_SSP1_DATA0__SSP1_D0
+						MX28_PAD_SSP1_DATA3__SSP1_D3
+					>;
+					fsl,drive-strength = <MXS_DRIVE_8mA>;
+					fsl,voltage = <MXS_VOLTAGE_HIGH>;
+					fsl,pull-up = <MXS_PULL_ENABLE>;
+				};
+
+				spi1_pins_b: spi1@1 {
+					reg = <1>;
+					fsl,pinmux-ids = <
+						MX28_PAD_SSP1_SCK__GPIO_2_12
+						MX28_PAD_SSP1_CMD__GPIO_2_13
+						MX28_PAD_SSP1_DATA0__GPIO_2_14
+						MX28_PAD_SSP1_DATA3__GPIO_2_15
+					>;
+					fsl,drive-strength = <MXS_DRIVE_8mA>;
+					fsl,voltage = <MXS_VOLTAGE_HIGH>;
+					fsl,pull-up = <MXS_PULL_ENABLE>;
+				};
+
 				spi2_pins_a: spi2@0 {
 					reg = <0>;
 					fsl,pinmux-ids = <
@@ -832,6 +949,19 @@
 				spi3_pins_b: spi3@1 {
 					reg = <1>;
 					fsl,pinmux-ids = <
+						MX28_PAD_SSP3_SCK__GPIO_2_24
+						MX28_PAD_SSP3_MOSI__GPIO_2_25
+						MX28_PAD_SSP3_MISO__GPIO_2_26
+						MX28_PAD_SSP3_SS0__GPIO_2_27
+					>;
+					fsl,drive-strength = <MXS_DRIVE_8mA>;
+					fsl,voltage = <MXS_VOLTAGE_HIGH>;
+					fsl,pull-up = <MXS_PULL_DISABLE>;
+				};
+
+				spi3_pins_c: spi3@2 {
+					reg = <2>;
+					fsl,pinmux-ids = <
 						MX28_PAD_SSP3_SCK__SSP3_SCK
 						MX28_PAD_SSP3_MOSI__SSP3_CMD
 						MX28_PAD_SSP3_MISO__SSP3_D0
@@ -839,7 +969,7 @@
 					>;
 					fsl,drive-strength = <MXS_DRIVE_8mA>;
 					fsl,voltage = <MXS_VOLTAGE_HIGH>;
-					fsl,pull-up = <MXS_PULL_ENABLE>;
+					fsl,pull-up = <MXS_PULL_DISABLE>;
 				};
 
 				usb0_pins_a: usb0@0 {
@@ -1101,7 +1231,7 @@
 				compatible = "fsl,imx28-pwm", "fsl,imx23-pwm";
 				reg = <0x80064000 0x2000>;
 				clocks = <&clks 44>;
-				#pwm-cells = <2>;
+				#pwm-cells = <3>;
 				fsl,pwm-number = <8>;
 				status = "disabled";
 			};
@@ -1241,6 +1371,11 @@
 			reg = <0x800f8000 0x8000>;
 			status = "disabled";
 		};
+
+		emi: emi@800e0000 {
+			reg = <0x800e0000 0x10000>;
+		};
+
 	};
 
 	iio_hwmon {

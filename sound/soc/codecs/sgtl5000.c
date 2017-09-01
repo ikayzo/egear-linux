@@ -493,6 +493,8 @@ static int sgtl5000_set_dai_fmt(struct snd_soc_dai *codec_dai, unsigned int fmt)
 		break;
 	case SND_SOC_DAIFMT_I2S:
 		i2sctl |= SGTL5000_I2S_MODE_I2S_LJ << SGTL5000_I2S_MODE_SHIFT;
+		if (of_machine_is_compatible("digi,ccimx6sbc"))
+			i2sctl |= SGTL5000_I2S_LRPOL;
 		break;
 	case SND_SOC_DAIFMT_RIGHT_J:
 		i2sctl |= SGTL5000_I2S_MODE_RJ << SGTL5000_I2S_MODE_SHIFT;
@@ -716,7 +718,6 @@ static int sgtl5000_pcm_hw_params(struct snd_pcm_substream *substream,
 {
 	struct snd_soc_codec *codec = dai->codec;
 	struct sgtl5000_priv *sgtl5000 = snd_soc_codec_get_drvdata(codec);
-	int channels = params_channels(params);
 	int i2s_ctl = 0;
 	int stereo;
 	int ret;
@@ -732,9 +733,8 @@ static int sgtl5000_pcm_hw_params(struct snd_pcm_substream *substream,
 	else
 		stereo = SGTL5000_ADC_STEREO;
 
-	/* set mono to save power */
-	snd_soc_update_bits(codec, SGTL5000_CHIP_ANA_POWER, stereo,
-			channels == 1 ? 0 : stereo);
+	/* set stereo regardless of channels */
+	snd_soc_update_bits(codec, SGTL5000_CHIP_ANA_POWER, stereo, stereo);
 
 	/* set codec clock base on lrclk */
 	ret = sgtl5000_set_clock(codec, params_rate(params));
@@ -940,7 +940,7 @@ static int ldo_regulator_remove(struct snd_soc_codec *codec)
 static int sgtl5000_set_bias_level(struct snd_soc_codec *codec,
 				   enum snd_soc_bias_level level)
 {
-	int ret;
+	int ret, reg;
 	struct sgtl5000_priv *sgtl5000 = snd_soc_codec_get_drvdata(codec);
 
 	switch (level) {
@@ -949,11 +949,23 @@ static int sgtl5000_set_bias_level(struct snd_soc_codec *codec,
 		break;
 	case SND_SOC_BIAS_STANDBY:
 		if (codec->dapm.bias_level == SND_SOC_BIAS_OFF) {
-			ret = regulator_bulk_enable(
+			if (of_machine_is_compatible("digi,ccimx6sbc")) {
+				reg = snd_soc_read(codec,
+						   SGTL5000_CHIP_ANA_POWER);
+				reg |= SGTL5000_VAG_POWERUP;
+				reg |= SGTL5000_HP_POWERUP;
+				reg |= SGTL5000_LINE_OUT_POWERUP;
+				reg |= SGTL5000_DAC_POWERUP;
+				reg |= SGTL5000_ADC_POWERUP;
+				snd_soc_write(codec, SGTL5000_CHIP_ANA_POWER,
+					      reg);
+			} else {
+				ret = regulator_bulk_enable(
 						ARRAY_SIZE(sgtl5000->supplies),
 						sgtl5000->supplies);
-			if (ret)
-				return ret;
+				if (ret)
+					return ret;
+			}
 			udelay(10);
 
 			regcache_cache_only(sgtl5000->regmap, false);
@@ -973,9 +985,24 @@ static int sgtl5000_set_bias_level(struct snd_soc_codec *codec,
 
 		break;
 	case SND_SOC_BIAS_OFF:
-		regcache_cache_only(sgtl5000->regmap, true);
-		regulator_bulk_disable(ARRAY_SIZE(sgtl5000->supplies),
-					sgtl5000->supplies);
+		if (of_machine_is_compatible("digi,ccimx6sbc")) {
+			reg = snd_soc_read(codec,
+					   SGTL5000_CHIP_ANA_POWER);
+			reg &= ~SGTL5000_VAG_POWERUP;
+			snd_soc_write(codec, SGTL5000_CHIP_ANA_POWER,
+				      reg);
+			msleep(400);
+			reg &= ~SGTL5000_HP_POWERUP;
+			reg &= ~SGTL5000_LINE_OUT_POWERUP;
+			reg &= ~SGTL5000_DAC_POWERUP;
+			reg &= ~SGTL5000_ADC_POWERUP;
+			snd_soc_write(codec, SGTL5000_CHIP_ANA_POWER,
+				      reg);
+		} else {
+			regcache_cache_only(sgtl5000->regmap, true);
+			regulator_bulk_disable(ARRAY_SIZE(sgtl5000->supplies),
+					       sgtl5000->supplies);
+		}
 		break;
 	}
 

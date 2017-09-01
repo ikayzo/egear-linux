@@ -137,6 +137,7 @@ static int __init mxc_clocksource_init(struct clk *timer_clk)
 	unsigned int c = clk_get_rate(timer_clk);
 	void __iomem *reg = timer_base + (timer_is_v2() ? V2_TCN : MX1_2_TCN);
 
+	pr_info("mxc_clocksource_init %d\n", c);
 	imx_delay_timer.read_current_timer = &imx_read_current_timer;
 	imx_delay_timer.freq = c;
 	register_current_timer_delay(&imx_delay_timer);
@@ -249,6 +250,14 @@ static void mxc_set_mode(enum clock_event_mode mode,
 }
 
 /*
+ * Shutdown timer
+ */
+static void mxc_suspend(struct clock_event_device *evt)
+{
+	mxc_set_mode(CLOCK_EVT_MODE_SHUTDOWN, evt);
+}
+
+/*
  * IRQ handler for the timer
  */
 static irqreturn_t mxc_timer_interrupt(int irq, void *dev_id)
@@ -278,6 +287,7 @@ static struct clock_event_device clockevent_mxc = {
 	.name		= "mxc_timer1",
 	.features	= CLOCK_EVT_FEAT_ONESHOT,
 	.set_mode	= mxc_set_mode,
+	.suspend	= mxc_suspend,
 	.set_next_event	= mx1_2_set_next_event,
 	.rating		= 200,
 };
@@ -321,7 +331,8 @@ static void __init _mxc_timer_init(int irq,
 		tctl_val = V2_TCTL_FRR | V2_TCTL_WAITEN | MXC_TCTL_TEN;
 		if (clk_get_rate(clk_per) == V2_TIMER_RATE_OSC_DIV8) {
 			tctl_val |= V2_TCTL_CLK_OSC_DIV8;
-			if (cpu_is_imx6dl() || cpu_is_imx6sx()) {
+			if (cpu_is_imx6dl() || cpu_is_imx6sx() || cpu_is_imx6ul() ||
+			    cpu_is_imx6ull() || cpu_is_imx7d()) {
 				/* 24 / 8 = 3 MHz */
 				__raw_writel(7 << V2_TPRER_PRE24M,
 					timer_base + MXC_TPRER);
@@ -383,3 +394,5 @@ CLOCKSOURCE_OF_DECLARE(mx53_timer, "fsl,imx53-gpt", mxc_timer_init_dt);
 CLOCKSOURCE_OF_DECLARE(mx6q_timer, "fsl,imx6q-gpt", mxc_timer_init_dt);
 CLOCKSOURCE_OF_DECLARE(mx6sl_timer, "fsl,imx6sl-gpt", mxc_timer_init_dt);
 CLOCKSOURCE_OF_DECLARE(mx6sx_timer, "fsl,imx6sx-gpt", mxc_timer_init_dt);
+CLOCKSOURCE_OF_DECLARE(mx6ul_timer, "fsl,imx6ul-gpt", mxc_timer_init_dt);
+CLOCKSOURCE_OF_DECLARE(mx7d_timer, "fsl,imx7d-gpt", mxc_timer_init_dt);

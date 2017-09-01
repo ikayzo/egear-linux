@@ -999,6 +999,16 @@ config RTC_DRV_M48T59
 	  This driver can also be built as a module, if so, the module
 	  will be called "rtc-m48t59".
 
+config RTC_DRV_MCA_CC6UL
+	tristate "Digi ConnectCore 6UL Micro Controller Assist RTC"
+	select MFD_MCA_CC6UL
+	help
+	  If you say Y here you will get support for the RTC in the
+	  Micro Controller Assist of Digi ConnectCore 6UL system-on-module.
+
+	  This driver can also be built as a module, if so, the module
+	  will be called "rtc-mca-cc6ul".
+
 config RTC_DRV_MSM6242
 	tristate "Oki MSM6242"
 	depends on HAS_IOMEM
@@ -1402,6 +1412,14 @@ config RTC_DRV_STMP
 
 	  This driver can also be built as a module. If so, the module
 	  will be called rtc-stmp3xxx.
+
+if RTC_DRV_STMP
+config RTC_INTF_SYSFS
+	bool "RTC Persistent bits sysfs interface"
+	help
+	  This enables sysfs access as binary attributes to RTC persistent
+	  registers.
+endif
 
 config RTC_DRV_PCAP
 	tristate "PCAP RTC"
