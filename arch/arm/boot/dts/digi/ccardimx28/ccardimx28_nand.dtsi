@@ -15,7 +15,8 @@
 			gpmi-nand@8000c000 {
 				pinctrl-names = "default";
 				pinctrl-0 = <&gpmi_pins_a &gpmi_status_cfg>;
-				fsl,legacy-bch-geometry = "true";
+				fsl,legacy-bch-geometry;
+				nand-on-flash-bbt;
 				status = "okay";
 			};
 			pinctrl@80018000 {
