@@ -17,10 +17,10 @@
 				spi_gpio: spi_gpio@0 {
 					reg = <0>;
 					fsl,pinmux-ids = <
-						0x11c3 /* MX28_PAD_LCD_VSYNC__GPIO_1_28 */
-						0x20c3 /* MX28_PAD_SSP1_SCK__GPIO_2_12 */
-						0x20d3 /* MX28_PAD_SSP1_CMD__GPIO_2_13 */
-						0x20e3 /* MX28_PAD_SSP1_DATA0__GPIO_2_14 */
+						MX28_PAD_LCD_VSYNC__GPIO_1_28
+						MX28_PAD_SSP1_SCK__GPIO_2_12
+						MX28_PAD_SSP1_CMD__GPIO_2_13
+						MX28_PAD_SSP1_DATA0__GPIO_2_14
 					>;
 					fsl,drive-strength = <1>;
 					fsl,voltage = <1>;

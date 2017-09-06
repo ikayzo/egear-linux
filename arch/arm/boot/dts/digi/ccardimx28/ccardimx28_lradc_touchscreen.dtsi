@@ -17,9 +17,9 @@
 				touchscreen_pins_a: touchscreen@0 {
 					reg = <0>;
 					fsl,pinmux-ids = <
-						0x20c3 /* MX28_PAD_SSP1_SCK__GPIO_2_12 */
-						0x3063 /* MX28_PAD_AUART1_CTS__GPIO_3_6 */
-						0x3073 /* MX28_PAD_AUART1_RTS__GPIO_3_7 */
+						MX28_PAD_SSP1_SCK__GPIO_2_12
+						MX28_PAD_AUART1_CTS__GPIO_3_6
+						MX28_PAD_AUART1_RTS__GPIO_3_7
 					>;
 					fsl,drive-strength = <1>;
 					fsl,voltage = <1>;
@@ -29,7 +29,7 @@
 				touchscreen_pins_b: touchscreen@1{
 					reg = <1>;
 					fsl,pinmux-ids = <
-						0x20e3 /* MX28_PAD_SSP1_DATA0__GPIO_2_14 */
+						MX28_PAD_SSP1_DATA0__GPIO_2_14
 					>;
 					fsl,drive-strength = <1>;
 					fsl,voltage = <1>;
