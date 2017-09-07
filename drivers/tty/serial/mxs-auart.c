@@ -108,6 +108,7 @@
 #define AUART_LINECTRL_BAUD_DIVFRAC_SHIFT	8
 #define AUART_LINECTRL_BAUD_DIVFRAC_MASK	0x00003f00
 #define AUART_LINECTRL_BAUD_DIVFRAC(v)		(((v) & 0x3f) << 8)
+#define AUART_LINECTRL_SPS			(1 << 7)
 #define AUART_LINECTRL_WLEN_MASK		0x00000060
 #define AUART_LINECTRL_WLEN(v)			(((v) & 0x3) << 5)
 #define AUART_LINECTRL_FEN			(1 << 4)
@@ -166,8 +167,6 @@ struct mxs_auart_port {
 	struct scatterlist rx_sgl;
 	struct dma_chan	*rx_dma_chan;
 	void *rx_dma_buf;
-
-	struct serial_rs485 rs585;
 
 	struct mctrl_gpios	*gpios;
 	int			gpio_irq[UART_GPIO_MAX];
@@ -1051,7 +1050,7 @@ static void mxs_auart_start_tx(struct uart_port *u)
 
 	if ((u->rs485.flags & SER_RS485_ENABLED) &&
 			(u->rs485.delay_rts_after_send > 0))
-		mdelay(s->rs485.delay_rts_before_send);
+		mdelay(u->rs485.delay_rts_before_send);
 
 	mxs_auart_tx_chars(s);
 }
@@ -1072,7 +1071,7 @@ static void mxs_auart_stop_tx(struct uart_port *u)
 			ctrl |= AUART_CTRL2_RXE;
 
 		if (u->rs485.delay_rts_after_send > 0)
-			mdelay(s->rs485.delay_rts_after_send);
+			mdelay(u->rs485.delay_rts_after_send);
 	}
 
 	writel(AUART_CTRL2_TXE, u->membase + AUART_CTRL2);
@@ -1282,7 +1281,7 @@ static int serial_mxs_probe_dt(struct mxs_auart_port *s,
 		struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;
-	struct serial_rs485 *rs485conf = &(s->rs485);
+	struct serial_rs485 *rs485conf = &(s->port.rs485);
 	u32 rs485_delay[2];
 	int ret;
 
