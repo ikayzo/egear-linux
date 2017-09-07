@@ -105,7 +105,7 @@ static int dsa_slave_open(struct net_device *dev)
 	if (ds->drv->port_stp_update)
 		ds->drv->port_stp_update(ds, p->port, stp_state);
 
-	if (p->phy)
+	if ((p->phy != NULL) && (p->phy->drv != NULL))
 		phy_start(p->phy);
 
 	return 0;
@@ -129,7 +129,7 @@ static int dsa_slave_close(struct net_device *dev)
 	struct net_device *master = p->parent->dst->master_netdev;
 	struct dsa_switch *ds = p->parent;
 
-	if (p->phy)
+	if ((p->phy != NULL) && (p->phy->drv != NULL))
 		phy_stop(p->phy);
 
 	dev_mc_unsync(master, dev);
@@ -302,7 +302,7 @@ static int dsa_slave_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	struct dsa_slave_priv *p = netdev_priv(dev);
 
-	if (p->phy != NULL)
+	if ((p->phy != NULL) && (p->phy->drv != NULL))
 		return phy_mii_ioctl(p->phy, ifr, cmd);
 
 	return -EOPNOTSUPP;
@@ -421,7 +421,7 @@ dsa_slave_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	int err;
 
 	err = -EOPNOTSUPP;
-	if (p->phy != NULL) {
+	if ((p->phy != NULL) && (p->phy->drv != NULL)) {
 		err = phy_read_status(p->phy);
 		if (err == 0)
 			err = phy_ethtool_gset(p->phy, cmd);
@@ -435,7 +435,7 @@ dsa_slave_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 {
 	struct dsa_slave_priv *p = netdev_priv(dev);
 
-	if (p->phy != NULL)
+	if ((p->phy != NULL) && (p->phy->drv != NULL))
 		return phy_ethtool_sset(p->phy, cmd);
 
 	return -EOPNOTSUPP;
@@ -475,7 +475,7 @@ static int dsa_slave_nway_reset(struct net_device *dev)
 {
 	struct dsa_slave_priv *p = netdev_priv(dev);
 
-	if (p->phy != NULL)
+	if ((p->phy != NULL) && (p->phy->drv != NULL))
 		return genphy_restart_aneg(p->phy);
 
 	return -EOPNOTSUPP;
@@ -485,7 +485,7 @@ static u32 dsa_slave_get_link(struct net_device *dev)
 {
 	struct dsa_slave_priv *p = netdev_priv(dev);
 
-	if (p->phy != NULL) {
+	if ((p->phy != NULL) && (p->phy->drv != NULL)) {
 		genphy_update_link(p->phy);
 		return p->phy->link;
 	}
@@ -616,7 +616,7 @@ static int dsa_slave_set_eee(struct net_device *dev, struct ethtool_eee *e)
 	if (ret)
 		return ret;
 
-	if (p->phy)
+	if ((p->phy) && (p->phy->drv != NULL))
 		ret = phy_ethtool_set_eee(p->phy, e);
 
 	return ret;
@@ -635,7 +635,7 @@ static int dsa_slave_get_eee(struct net_device *dev, struct ethtool_eee *e)
 	if (ret)
 		return ret;
 
-	if (p->phy)
+	if ((p->phy != NULL) && (p->phy->drv != NULL))
 		ret = phy_ethtool_get_eee(p->phy, e);
 
 	return ret;
@@ -734,8 +734,11 @@ static int dsa_slave_phy_connect(struct dsa_slave_priv *p,
 	/* Use already configured phy mode */
 	if (p->phy_interface == PHY_INTERFACE_MODE_NA)
 		p->phy_interface = p->phy->interface;
-	return phy_connect_direct(slave_dev, p->phy, dsa_slave_adjust_link,
+
+	if (p->phy->drv != NULL)
+		return phy_connect_direct(slave_dev, p->phy, dsa_slave_adjust_link,
 				  p->phy_interface);
+	return 0;
 }
 
 static int dsa_slave_phy_setup(struct dsa_slave_priv *p,
@@ -799,7 +802,6 @@ static int dsa_slave_phy_setup(struct dsa_slave_priv *p,
 	 */
 	if (!p->phy) {
 		ret = dsa_slave_phy_connect(p, slave_dev, p->port);
-		if (ret)
 			return ret;
 	} else {
 		netdev_info(slave_dev, "attached PHY at address %d [%s]\n",
@@ -815,7 +817,7 @@ int dsa_slave_suspend(struct net_device *slave_dev)
 
 	netif_device_detach(slave_dev);
 
-	if (p->phy) {
+	if ((p->phy != NULL) && (p->phy->drv != NULL)) {
 		phy_stop(p->phy);
 		p->old_pause = -1;
 		p->old_link = -1;
@@ -832,7 +834,7 @@ int dsa_slave_resume(struct net_device *slave_dev)
 
 	netif_device_attach(slave_dev);
 
-	if (p->phy) {
+	if ((p->phy != NULL) && (p->phy->drv != NULL)) {
 		phy_resume(p->phy);
 		phy_start(p->phy);
 	}
@@ -888,6 +890,11 @@ int dsa_slave_create(struct dsa_switch *ds, struct device *parent,
 #ifdef CONFIG_NET_DSA_TAG_BRCM
 	case DSA_TAG_PROTO_BRCM:
 		p->xmit = brcm_netdev_ops.xmit;
+		break;
+#endif
+#ifdef CONFIG_NET_DSA_TAG_VID
+	case DSA_TAG_PROTO_VID:
+		p->xmit = vid_netdev_ops.xmit;
 		break;
 #endif
 	default:

@@ -51,6 +51,8 @@
 	};
 
 	wireless {
+		compatible = "atheros,ath6kl";
+		ath6kl-softmac-enable;
 		digi,pwrdown-gpio = <&gpio2 18 0>;
 		/* U-Boot will fill in the MAC address here */
 	};

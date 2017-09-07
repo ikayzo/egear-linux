@@ -930,7 +930,7 @@
 				spi0_pins_b: spi0@1 {
 					reg = <1>;
 					fsl,pinmux-ids = <
-						MX28_PAD_SSP0_SCK__GPIO_2_10
+						MX28_PAD_LCD_VSYNC__GPIO_1_28
 						MX28_PAD_SSP0_CMD__GPIO_2_8
 						MX28_PAD_SSP0_DATA0__GPIO_2_0
 						MX28_PAD_SSP0_DATA3__GPIO_2_3

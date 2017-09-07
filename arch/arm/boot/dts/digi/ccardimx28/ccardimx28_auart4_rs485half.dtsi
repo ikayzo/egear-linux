@@ -18,7 +18,7 @@
 				fsl,uart-has-rtscts;
 				linux,rs485-enabled-at-boot-time;
 				rs485-rts-active-high;
-                                rs485-rts-delay = <0 0>;
+				rs485-rts-delay = <0 0>;
 				status = "okay";
 			};
 		};
