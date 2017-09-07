@@ -15,6 +15,7 @@
 			auart1: serial@8006c000 {
 				pinctrl-names = "default";
 				pinctrl-0 = <&auart1_pins_a>;
+				fsl,uart-has-rtscts;
 				status = "okay";
 			};
 		};

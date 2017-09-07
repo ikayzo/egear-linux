@@ -35,6 +35,7 @@
 				pinctrl-names = "default";
 				pinctrl-0 = <&auart0_pins_a
 					     &bluetooth_pins_a>;
+				fsl,uart-has-rtscts;
 				status = "okay";
 			};
 		};

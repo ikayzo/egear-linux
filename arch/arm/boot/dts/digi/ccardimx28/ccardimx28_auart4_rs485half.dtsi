@@ -15,6 +15,7 @@
 			auart4: serial@80072000 {
 				pinctrl-names = "default";
 				pinctrl-0 = <&auart4_3pins_a>;
+				fsl,uart-has-rtscts;
 				linux,rs485-enabled-at-boot-time;
 				rs485-rts-active-high;
                                 rs485-rts-delay = <0 0>;
