@@ -1628,11 +1628,14 @@ static const struct fw_capa_str_map {
 	{ ATH6KL_FW_CAPABILITY_REGDOMAIN, "regdomain" },
 	{ ATH6KL_FW_CAPABILITY_SCHED_SCAN_V2, "sched-scan-v2" },
 	{ ATH6KL_FW_CAPABILITY_HEART_BEAT_POLL, "hb-poll" },
+	{ ATH6KL_FW_CAPABILITY_REGDOMAIN_V2, "regdomain-v2" },
+	{ ATH6KL_FW_CAPABILITY_LARGE_CONNECT_IE, "large-connect-ie" },
 	{ ATH6KL_FW_CAPABILITY_64BIT_RATES, "64bit-rates" },
 	{ ATH6KL_FW_CAPABILITY_AP_INACTIVITY_MINS, "ap-inactivity-mins" },
 	{ ATH6KL_FW_CAPABILITY_MAP_LP_ENDPOINT, "map-lp-endpoint" },
 	{ ATH6KL_FW_CAPABILITY_RATETABLE_MCS15, "ratetable-mcs15" },
 	{ ATH6KL_FW_CAPABILITY_NO_IP_CHECKSUM, "no-ip-checksum" },
+
 };
 
 static const char *ath6kl_init_get_fw_capa_name(unsigned int id)

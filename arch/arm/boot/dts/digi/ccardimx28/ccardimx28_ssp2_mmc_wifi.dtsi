@@ -53,6 +53,7 @@
 	wireless {
 		compatible = "atheros,ath6kl";
 		ath6kl-softmac-enable;
+		ath6kl-reg-domain = /bits/ 16 <0x8348>;
 		digi,pwrdown-gpio = <&gpio2 18 0>;
 		/* U-Boot will fill in the MAC address here */
 	};
