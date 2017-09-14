@@ -82,7 +82,7 @@
 #define ID1_START_SW		1	/* start the switch */
 
 #define FAMILY_KS8995		0x95
-#define CHIPID_M		0
+#define CHIPID_M		0x04
 
 #define KS8995_CMD_WRITE	0x02U
 #define KS8995_CMD_READ		0x03U
@@ -480,23 +480,23 @@ static int ks8995_probe(struct spi_device *spi)
 	}
 
 	memcpy(&ks->regs_attr, &ks8995_registers_attr, sizeof(ks->regs_attr));
-//	if (get_chip_id(ids[1]) != CHIPID_M) {
-//		u8 val;
-//
-//		/* Check if this is a KSZ8864RMN */
-//		err = ks8995_read(ks, &val, KSZ8864_REG_ID1, sizeof(val));
-//		if (err < 0) {
-//			dev_err(&spi->dev,
-//				"unable to read chip id register, err=%d\n",
-//				err);
-//			return err;
-//		}
-//		if ((val & 0x80) == 0) {
-//			dev_err(&spi->dev, "unknown chip:%02x,0\n", ids[1]);
-//			return err;
-//		}
-//		ks->regs_attr.size = KSZ8864_REGS_SIZE;
-//	}
+	if (get_chip_id(ids[1]) != CHIPID_M) {
+		u8 val;
+
+		/* Check if this is a KSZ8864RMN */
+		err = ks8995_read(ks, &val, KSZ8864_REG_ID1, sizeof(val));
+		if (err < 0) {
+			dev_err(&spi->dev,
+				"unable to read chip id register, err=%d\n",
+				err);
+			return err;
+		}
+		if ((val & 0x80) == 0) {
+			dev_err(&spi->dev, "unknown chip:%02x,0\n", ids[1]);
+			return err;
+		}
+		ks->regs_attr.size = KSZ8864_REGS_SIZE;
+	}
 
 	err = ks8995_reset(ks);
 	if (err)
@@ -607,7 +607,7 @@ static int ks8995_set_addr(struct dsa_switch *ds, u8 *addr)
 
 	for (i = 0; i < ETH_ALEN; i++) {
 		if (ks8995_write_reg(ks, KS8995_REG_MAC(i), addr[i]))
-		goto out;
+			goto out;
 	}
 
 	ret = 0;
@@ -621,7 +621,7 @@ static int ks8995_port_status(int port)
 	u8 status = 0;
 
 	ret = ks8995_read_reg(ks, KS8995_REG_PS(port, 0), &status);
-	if (!ret) {
+	if (0 == ret) {
 		ret = status;
 	}
 
@@ -673,7 +673,7 @@ static void ks8995_poll_link(struct dsa_switch *ds)
 	for (i = 0; i < DSA_MAX_PORTS; i++) {
 		struct net_device *dev = ds->ports[i];
 
-		if (!dev) {
+		if (NULL == dev) {
 			continue;
 		}
 

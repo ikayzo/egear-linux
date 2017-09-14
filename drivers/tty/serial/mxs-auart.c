@@ -262,8 +262,6 @@ static int mxs_auart_dma_tx(struct mxs_auart_port *s, int size)
 	return 0;
 }
 
-
-
 /*
  * This function assumes it is called without the port
  * lock held.
@@ -954,7 +952,9 @@ static int mxs_auart_startup(struct uart_port *u)
 		/* reset the unit to a well known state */
 		mxs_auart_reset_assert(u);
 		mxs_auart_reset_deassert(u);
-	}	writel(AUART_CTRL0_CLKGATE, u->membase + AUART_CTRL0_CLR);
+	}
+
+	writel(AUART_CTRL0_CLKGATE, u->membase + AUART_CTRL0_CLR);
 
 	writel(AUART_CTRL2_UARTEN, u->membase + AUART_CTRL2_SET);
 
@@ -1049,7 +1049,7 @@ static void mxs_auart_start_tx(struct uart_port *u)
 	writel(ctrl, u->membase + AUART_CTRL2);
 
 	if ((u->rs485.flags & SER_RS485_ENABLED) &&
-			(u->rs485.delay_rts_after_send > 0))
+			(u->rs485.delay_rts_before_send > 0))
 		mdelay(u->rs485.delay_rts_before_send);
 
 	mxs_auart_tx_chars(s);
