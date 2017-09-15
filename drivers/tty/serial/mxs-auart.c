@@ -300,6 +300,7 @@ static void mxs_auart_tx_chars(struct mxs_auart_port *s)
 		if (i) {
 			mxs_auart_dma_tx(s, i);
 		} else {
+			mxs_auart_stop_tx(&s->port);
 			clear_bit(MXS_AUART_DMA_TX_SYNC, &s->flags);
 			smp_mb__after_atomic();
 		}
@@ -774,20 +775,20 @@ static void mxs_auart_settermios(struct uart_port *u,
 
 	/* figure out the hardware flow control settings */
 	ctrl2 &= ~(AUART_CTRL2_CTSEN | AUART_CTRL2_RTSEN);
-	if (cflag & CRTSCTS) {
-		/*
-		 * The DMA has a bug(see errata:2836) in mx23.
-		 * So we can not implement the DMA for auart in mx23,
-		 * we can only implement the DMA support for auart
-		 * in mx28.
-		 */
-		if (is_imx28_auart(s)
-				&& test_bit(MXS_AUART_RTSCTS, &s->flags)) {
-			if (!mxs_auart_dma_init(s))
-				/* enable DMA tranfer */
-				ctrl2 |= AUART_CTRL2_TXDMAE | AUART_CTRL2_RXDMAE
-				       | AUART_CTRL2_DMAONERR;
-		}
+	/*
+	 * The DMA has a bug(see errata:2836) in mx23.
+	 * So we can not implement the DMA for auart in mx23,
+	 * we can only implement the DMA support for auart
+	 * in mx28.
+	 */
+	if (is_imx28_auart(s)
+			&& test_bit(MXS_AUART_RTSCTS, &s->flags)) {
+		if (!mxs_auart_dma_init(s))
+			/* enable DMA tranfer */
+			ctrl2 |= AUART_CTRL2_TXDMAE | AUART_CTRL2_RXDMAE
+			       | AUART_CTRL2_DMAONERR;
+	}
+	if ((cflag & CRTSCTS) && !(u->rs485.flags & SER_RS485_ENABLED)) {
 		/* Even if RTS is GPIO line RTSEN can be enabled because
 		 * the pinctrl configuration decides about RTS pin function */
 		ctrl2 |= AUART_CTRL2_RTSEN;
@@ -1062,6 +1063,9 @@ static void mxs_auart_stop_tx(struct uart_port *u)
 
 	ctrl &= ~AUART_CTRL2_TXE;
 	if (u->rs485.flags & SER_RS485_ENABLED) {
+		if (!mxs_auart_tx_empty(&s->port))
+			udelay(s->port.timeout);
+
 		if (u->rs485.flags & SER_RS485_RTS_AFTER_SEND)
 			ctrl |= AUART_CTRL2_RTS;
 		else
@@ -1074,7 +1078,7 @@ static void mxs_auart_stop_tx(struct uart_port *u)
 			mdelay(u->rs485.delay_rts_after_send);
 	}
 
-	writel(AUART_CTRL2_TXE, u->membase + AUART_CTRL2);
+	writel(ctrl, u->membase + AUART_CTRL2);
 }
 
 static void mxs_auart_stop_rx(struct uart_port *u)
@@ -1319,7 +1323,6 @@ static int serial_mxs_probe_dt(struct mxs_auart_port *s,
 		rs485conf->flags |= SER_RS485_RX_DURING_TX;
 
 	if (of_property_read_bool(np, "linux,rs485-enabled-at-boot-time")) {
-		// SCV: TODO? clear_bit(MXS_AUART_RTSCTS, &s->flags);
 		rs485conf->flags |= SER_RS485_ENABLED;
 	}
 	return 0;
