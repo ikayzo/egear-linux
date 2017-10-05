@@ -544,15 +544,15 @@ static int call_crda(const char *alpha2)
 	reg_regdb_query(alpha2);
 
 	if (reg_crda_timeouts > REG_MAX_CRDA_TIMEOUTS) {
-		pr_info("Exceeded CRDA call max attempts. Not calling CRDA\n");
+		pr_debug("Exceeded CRDA call max attempts. Not calling CRDA\n");
 		return -EINVAL;
 	}
 
 	if (!is_world_regdom((char *) alpha2))
-		pr_info("Calling CRDA for country: %c%c\n",
+		pr_debug("Calling CRDA for country: %c%c\n",
 			alpha2[0], alpha2[1]);
 	else
-		pr_info("Calling CRDA to update world regulatory domain\n");
+		pr_debug("Calling CRDA to update world regulatory domain\n");
 
 	return kobject_uevent_env(&reg_pdev->dev.kobj, KOBJ_CHANGE, env);
 }
@@ -2310,6 +2310,7 @@ int regulatory_hint_user(const char *alpha2,
 
 	return 0;
 }
+EXPORT_SYMBOL(regulatory_hint_user);
 
 int regulatory_hint_indoor(bool is_indoor, u32 portid)
 {

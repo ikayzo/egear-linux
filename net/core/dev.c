@@ -3677,8 +3677,9 @@ another_round:
 
 	__this_cpu_inc(softnet_data.processed);
 
-	if (skb->protocol == cpu_to_be16(ETH_P_8021Q) ||
-	    skb->protocol == cpu_to_be16(ETH_P_8021AD)) {
+	if ((skb->protocol == cpu_to_be16(ETH_P_8021Q) ||
+	    skb->protocol == cpu_to_be16(ETH_P_8021AD)) &&
+	    is_vlan_dev(orig_dev)) {
 		skb = skb_vlan_untag(skb);
 		if (unlikely(!skb))
 			goto out;

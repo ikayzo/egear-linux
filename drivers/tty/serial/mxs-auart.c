@@ -100,12 +100,15 @@
 #define AUART_CTRL2_TXE				(1 << 8)
 #define AUART_CTRL2_UARTEN			(1 << 0)
 
+#define AUART_LINECTRL_BAUD_DIV_MAX		0x003fffc0
+#define AUART_LINECTRL_BAUD_DIV_MIN		0x000000ec
 #define AUART_LINECTRL_BAUD_DIVINT_SHIFT	16
 #define AUART_LINECTRL_BAUD_DIVINT_MASK		0xffff0000
 #define AUART_LINECTRL_BAUD_DIVINT(v)		(((v) & 0xffff) << 16)
 #define AUART_LINECTRL_BAUD_DIVFRAC_SHIFT	8
 #define AUART_LINECTRL_BAUD_DIVFRAC_MASK	0x00003f00
 #define AUART_LINECTRL_BAUD_DIVFRAC(v)		(((v) & 0x3f) << 8)
+#define AUART_LINECTRL_SPS			(1 << 7)
 #define AUART_LINECTRL_WLEN_MASK		0x00000060
 #define AUART_LINECTRL_WLEN(v)			(((v) & 0x3) << 5)
 #define AUART_LINECTRL_FEN			(1 << 4)
@@ -144,10 +147,11 @@ enum mxs_auart_type {
 struct mxs_auart_port {
 	struct uart_port port;
 
-#define MXS_AUART_DMA_ENABLED	0x2
-#define MXS_AUART_DMA_TX_SYNC	2  /* bit 2 */
-#define MXS_AUART_DMA_RX_READY	3  /* bit 3 */
-#define MXS_AUART_RTSCTS	4  /* bit 4 */
+#define MXS_AUART_DMA_ENABLED	(1 << 1)  	/* bit 1 */
+#define MXS_AUART_DMA_TX_SYNC	2		/* bit 2 */
+#define MXS_AUART_DMA_RX_READY	3		/* bit 3 */
+#define MXS_AUART_RTSCTS	4  		/* bit 4 */
+#define MXS_AUART_RXE		(1 << 5)  	/* bit 5 */
 	unsigned long flags;
 	unsigned int mctrl_prev;
 	enum mxs_auart_type devtype;
@@ -169,7 +173,7 @@ struct mxs_auart_port {
 	bool			ms_irq_enabled;
 };
 
-static struct platform_device_id mxs_auart_devtype[] = {
+static const struct platform_device_id mxs_auart_devtype[] = {
 	{ .name = "mxs-auart-imx23", .driver_data = IMX23_AUART },
 	{ .name = "mxs-auart-imx28", .driver_data = IMX28_AUART },
 	{ /* sentinel */ }
@@ -207,7 +211,9 @@ static void dma_tx_callback(void *param)
 {
 	struct mxs_auart_port *s = param;
 	struct circ_buf *xmit = &s->port.state->xmit;
+	unsigned long flags;
 
+	spin_lock_irqsave(&s->port.lock, flags);
 	dma_unmap_sg(s->dev, &s->tx_sgl, 1, DMA_TO_DEVICE);
 
 	/* clear the bit used to serialize the DMA tx. */
@@ -217,6 +223,7 @@ static void dma_tx_callback(void *param)
 	/* wake up the possible processes. */
 	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
 		uart_write_wakeup(&s->port);
+	spin_unlock_irqrestore(&s->port.lock, flags);
 
 	mxs_auart_tx_chars(s);
 }
@@ -255,9 +262,14 @@ static int mxs_auart_dma_tx(struct mxs_auart_port *s, int size)
 	return 0;
 }
 
+/*
+ * This function assumes it is called without the port
+ * lock held.
+ */
 static void mxs_auart_tx_chars(struct mxs_auart_port *s)
 {
 	struct circ_buf *xmit = &s->port.state->xmit;
+	unsigned long flags;
 
 	if (auart_dma_enabled(s)) {
 		u32 i = 0;
@@ -272,6 +284,8 @@ static void mxs_auart_tx_chars(struct mxs_auart_port *s)
 				     CIRC_CNT_TO_END(xmit->head,
 						     xmit->tail,
 						     UART_XMIT_SIZE));
+			s->port.icount.tx += size;
+
 			memcpy(buffer + i, xmit->buf + xmit->tail, size);
 			xmit->tail = (xmit->tail + size) & (UART_XMIT_SIZE - 1);
 
@@ -286,12 +300,12 @@ static void mxs_auart_tx_chars(struct mxs_auart_port *s)
 		if (i) {
 			mxs_auart_dma_tx(s, i);
 		} else {
+			mxs_auart_stop_tx(&s->port);
 			clear_bit(MXS_AUART_DMA_TX_SYNC, &s->flags);
 			smp_mb__after_atomic();
 		}
 		return;
 	}
-
 
 	while (!(readl(s->port.membase + AUART_STAT) &
 		 AUART_STAT_TXFF)) {
@@ -310,8 +324,11 @@ static void mxs_auart_tx_chars(struct mxs_auart_port *s)
 		} else
 			break;
 	}
-	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
+	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS) {
+		spin_lock_irqsave(&s->port.lock, flags);
 		uart_write_wakeup(&s->port);
+		spin_unlock_irqrestore(&s->port.lock, flags);
+	}
 
 	if (uart_circ_empty(&(s->port.state->xmit)))
 		writel(AUART_INTR_TXIEN,
@@ -372,6 +389,7 @@ out:
 static void mxs_auart_rx_chars(struct mxs_auart_port *s)
 {
 	u32 stat = 0;
+	unsigned long flags;
 
 	for (;;) {
 		stat = readl(s->port.membase + AUART_STAT);
@@ -380,8 +398,10 @@ static void mxs_auart_rx_chars(struct mxs_auart_port *s)
 		mxs_auart_rx_char(s);
 	}
 
+	spin_lock_irqsave(&s->port.lock, flags);
 	writel(stat, s->port.membase + AUART_STAT);
 	tty_flip_buffer_push(&s->port.state->port);
+	spin_unlock_irqrestore(&s->port.lock, flags);
 }
 
 static int mxs_auart_request_port(struct uart_port *u)
@@ -418,15 +438,18 @@ static void mxs_auart_set_mctrl(struct uart_port *u, unsigned mctrl)
 
 	u32 ctrl = readl(u->membase + AUART_CTRL2);
 
-	ctrl &= ~(AUART_CTRL2_RTSEN | AUART_CTRL2_RTS);
-	if (mctrl & TIOCM_RTS) {
-		if (uart_cts_enabled(u))
-			ctrl |= AUART_CTRL2_RTSEN;
-		else
-			ctrl |= AUART_CTRL2_RTS;
-	}
+	if (!(u->rs485.flags & SER_RS485_ENABLED))
+	{
+		ctrl &= ~(AUART_CTRL2_RTSEN | AUART_CTRL2_RTS);
+		if (mctrl & TIOCM_RTS) {
+			if (uart_cts_enabled(u))
+				ctrl |= AUART_CTRL2_RTSEN;
+			else
+				ctrl |= AUART_CTRL2_RTS;
+		}
 
-	writel(ctrl, u->membase + AUART_CTRL2);
+		writel(ctrl, u->membase + AUART_CTRL2);
+	}
 
 	mctrl_gpio_set(s->gpios, mctrl);
 }
@@ -531,7 +554,9 @@ static void dma_rx_callback(void *arg)
 	struct tty_port *port = &s->port.state->port;
 	int count;
 	u32 stat;
+	unsigned long flags;
 
+	spin_lock_irqsave(&s->port.lock, flags);
 	dma_unmap_sg(s->dev, &s->rx_sgl, 1, DMA_FROM_DEVICE);
 
 	stat = readl(s->port.membase + AUART_STAT);
@@ -541,8 +566,11 @@ static void dma_rx_callback(void *arg)
 	count = stat & AUART_STAT_RXCOUNT_MASK;
 	tty_insert_flip_string(port, s->rx_dma_buf, count);
 
+	s->port.icount.rx += count;
+
 	writel(stat, s->port.membase + AUART_STAT);
 	tty_flip_buffer_push(port);
+	spin_unlock_irqrestore(&s->port.lock, flags);
 
 	/* start the next DMA for RX. */
 	mxs_auart_dma_prep_rx(s);
@@ -557,7 +585,7 @@ static int mxs_auart_dma_prep_rx(struct mxs_auart_port *s)
 
 	/* [1] : send PIO */
 	pio[0] = AUART_CTRL0_RXTO_ENABLE
-		| AUART_CTRL0_RXTIMEOUT(0x80)
+		| AUART_CTRL0_RXTIMEOUT(0x03)
 		| AUART_CTRL0_XFER_COUNT(UART_XMIT_SIZE);
 	desc = dmaengine_prep_slave_sg(channel, (struct scatterlist *)pio,
 					1, DMA_TRANS_NONE, 0);
@@ -603,7 +631,9 @@ static void mxs_auart_dma_exit_channel(struct mxs_auart_port *s)
 
 static void mxs_auart_dma_exit(struct mxs_auart_port *s)
 {
+	unsigned long flags;
 
+	spin_lock_irqsave(&s->port.lock, flags);
 	writel(AUART_CTRL2_TXDMAE | AUART_CTRL2_RXDMAE | AUART_CTRL2_DMAONERR,
 		s->port.membase + AUART_CTRL2_CLR);
 
@@ -611,13 +641,19 @@ static void mxs_auart_dma_exit(struct mxs_auart_port *s)
 	s->flags &= ~MXS_AUART_DMA_ENABLED;
 	clear_bit(MXS_AUART_DMA_TX_SYNC, &s->flags);
 	clear_bit(MXS_AUART_DMA_RX_READY, &s->flags);
+	/* Reset FIFO size */
+	s->port.fifosize = MXS_AUART_FIFO_SIZE;
+	spin_unlock_irqrestore(&s->port.lock, flags);
 }
 
 static int mxs_auart_dma_init(struct mxs_auart_port *s)
 {
+	unsigned long flags;
+
 	if (auart_dma_enabled(s))
 		return 0;
 
+	spin_lock_irqsave(&s->port.lock, flags);
 	/* init for RX */
 	s->rx_dma_chan = dma_request_slave_channel(s->dev, "rx");
 	if (!s->rx_dma_chan)
@@ -641,9 +677,12 @@ static int mxs_auart_dma_init(struct mxs_auart_port *s)
 	/* The DMA buffer is now the FIFO the TTY subsystem can use */
 	s->port.fifosize = UART_XMIT_SIZE;
 
+	spin_unlock_irqrestore(&s->port.lock, flags);
+
 	return 0;
 
 err_out:
+	spin_unlock_irqrestore(&s->port.lock, flags);
 	mxs_auart_dma_exit_channel(s);
 	return -EINVAL;
 
@@ -659,7 +698,8 @@ static void mxs_auart_settermios(struct uart_port *u,
 {
 	struct mxs_auart_port *s = to_auart_port(u);
 	u32 bm, ctrl, ctrl2, div;
-	unsigned int cflag, baud;
+	unsigned int cflag, baud, baud_min, baud_max;
+	unsigned long flags;
 
 	cflag = termios->c_cflag;
 
@@ -691,9 +731,11 @@ static void mxs_auart_settermios(struct uart_port *u,
 		ctrl |= AUART_LINECTRL_PEN;
 		if ((cflag & PARODD) == 0)
 			ctrl |= AUART_LINECTRL_EPS;
+		if (cflag & CMSPAR)
+			ctrl |= AUART_LINECTRL_SPS;
 	}
 
-	u->read_status_mask = 0;
+	u->read_status_mask = AUART_STAT_OERR;
 
 	if (termios->c_iflag & INPCK)
 		u->read_status_mask |= AUART_STAT_PERR;
@@ -719,10 +761,13 @@ static void mxs_auart_settermios(struct uart_port *u,
 	/*
 	 * ignore all characters if CREAD is not set
 	 */
-	if (cflag & CREAD)
+	if (cflag & CREAD) {
+		s->flags |= MXS_AUART_RXE;
 		ctrl2 |= AUART_CTRL2_RXE;
-	else
+	} else {
+		s->flags &= ~MXS_AUART_RXE;
 		ctrl2 &= ~AUART_CTRL2_RXE;
+	}
 
 	/* figure out the stop bits requested */
 	if (cflag & CSTOPB)
@@ -730,20 +775,20 @@ static void mxs_auart_settermios(struct uart_port *u,
 
 	/* figure out the hardware flow control settings */
 	ctrl2 &= ~(AUART_CTRL2_CTSEN | AUART_CTRL2_RTSEN);
-	if (cflag & CRTSCTS) {
-		/*
-		 * The DMA has a bug(see errata:2836) in mx23.
-		 * So we can not implement the DMA for auart in mx23,
-		 * we can only implement the DMA support for auart
-		 * in mx28.
-		 */
-		if (is_imx28_auart(s)
-				&& test_bit(MXS_AUART_RTSCTS, &s->flags)) {
-			if (!mxs_auart_dma_init(s))
-				/* enable DMA tranfer */
-				ctrl2 |= AUART_CTRL2_TXDMAE | AUART_CTRL2_RXDMAE
-				       | AUART_CTRL2_DMAONERR;
-		}
+	/*
+	 * The DMA has a bug(see errata:2836) in mx23.
+	 * So we can not implement the DMA for auart in mx23,
+	 * we can only implement the DMA support for auart
+	 * in mx28.
+	 */
+	if (is_imx28_auart(s)
+			&& test_bit(MXS_AUART_RTSCTS, &s->flags)) {
+		if (!mxs_auart_dma_init(s))
+			/* enable DMA tranfer */
+			ctrl2 |= AUART_CTRL2_TXDMAE | AUART_CTRL2_RXDMAE
+			       | AUART_CTRL2_DMAONERR;
+	}
+	if ((cflag & CRTSCTS) && !(u->rs485.flags & SER_RS485_ENABLED)) {
 		/* Even if RTS is GPIO line RTSEN can be enabled because
 		 * the pinctrl configuration decides about RTS pin function */
 		ctrl2 |= AUART_CTRL2_RTSEN;
@@ -751,9 +796,13 @@ static void mxs_auart_settermios(struct uart_port *u,
 			ctrl2 |= AUART_CTRL2_CTSEN;
 	}
 
+	spin_lock_irqsave(&s->port.lock, flags);
+
 	/* set baud rate */
-	baud = uart_get_baud_rate(u, termios, old, 0, u->uartclk);
-	div = u->uartclk * 32 / baud;
+	baud_min = DIV_ROUND_UP(u->uartclk * 32, AUART_LINECTRL_BAUD_DIV_MAX);
+	baud_max = u->uartclk * 32 / AUART_LINECTRL_BAUD_DIV_MIN;
+	baud = uart_get_baud_rate(u, termios, old, baud_min, baud_max);
+	div = DIV_ROUND_CLOSEST(u->uartclk * 32, baud);
 	ctrl |= AUART_LINECTRL_BAUD_DIVFRAC(div & 0x3F);
 	ctrl |= AUART_LINECTRL_BAUD_DIVINT(div >> 6);
 
@@ -780,6 +829,8 @@ static void mxs_auart_settermios(struct uart_port *u,
 		mxs_auart_enable_ms(u);
 	else
 		mxs_auart_disable_ms(u);
+	
+	spin_unlock_irqrestore(&s->port.lock, flags);
 }
 
 static void mxs_auart_set_ldisc(struct uart_port *port,
@@ -820,29 +871,34 @@ static irqreturn_t mxs_auart_irq_handle(int irq, void *context)
 				mctrl_gpio_get(s->gpios, &mctrl_temp));
 
 	if (istat & AUART_INTR_CTSMIS) {
-		if (CTS_AT_AUART() && s->ms_irq_enabled)
-			uart_handle_cts_change(&s->port,
-					stat & AUART_STAT_CTS);
-		writel(AUART_INTR_CTSMIS,
-				s->port.membase + AUART_INTR_CLR);
-		istat &= ~AUART_INTR_CTSMIS;
+		/* Fast pulses on the CTS line may lead to a situation where the
+		 * CTS is asserted and generates an interrupt, but when the ISR
+		 * is called, the CTS line has already been deasserted. In this
+		 * case, we must do nothing. Consider only the case where CTS
+		 * is still asserted.
+		 */
+		if (stat & AUART_STAT_CTS) {
+			if (CTS_AT_AUART() && s->ms_irq_enabled)
+				uart_handle_cts_change(&s->port,
+						stat & AUART_STAT_CTS);
+			writel(AUART_INTR_CTSMIS,
+					s->port.membase + AUART_INTR_CLR);
+			istat &= ~AUART_INTR_CTSMIS;
+		}
 	}
 
 	if (istat & (AUART_INTR_RTIS | AUART_INTR_RXIS)) {
 		if (!auart_dma_enabled(s))
 			mxs_auart_rx_chars(s);
-		istat &= ~(AUART_INTR_RTIS | AUART_INTR_RXIS);
 	}
 
-	if (istat & AUART_INTR_TXIS) {
+	if (istat & AUART_INTR_TXIS) 
 		mxs_auart_tx_chars(s);
-		istat &= ~AUART_INTR_TXIS;
-	}
 
 	return IRQ_HANDLED;
 }
 
-static void mxs_auart_reset(struct uart_port *u)
+static void mxs_auart_reset_deassert(struct uart_port *u)
 {
 	int i;
 	unsigned int reg;
@@ -858,6 +914,30 @@ static void mxs_auart_reset(struct uart_port *u)
 	writel(AUART_CTRL0_CLKGATE, u->membase + AUART_CTRL0_CLR);
 }
 
+static void mxs_auart_reset_assert(struct uart_port *u)
+{
+	int i;
+	u32 reg;
+
+	reg = readl(u->membase + AUART_CTRL0);
+	/* if already in reset state, keep it untouched */
+	if (reg & AUART_CTRL0_SFTRST)
+		return;
+
+	writel(AUART_CTRL0_CLKGATE, u->membase + AUART_CTRL0_CLR);
+	writel(AUART_CTRL0_SFTRST, u->membase + AUART_CTRL0_SET);
+
+	for (i = 0; i < 1000; i++) {
+		reg = readl(u->membase + AUART_CTRL0);
+		/* reset is finished when the clock is gated */
+		if (reg & AUART_CTRL0_CLKGATE)
+			return;
+		udelay(10);
+	}
+
+	dev_err(u->dev, "Failed to reset the unit.");
+}
+
 static int mxs_auart_startup(struct uart_port *u)
 {
 	int ret;
@@ -866,6 +946,14 @@ static int mxs_auart_startup(struct uart_port *u)
 	ret = clk_prepare_enable(s->clk);
 	if (ret)
 		return ret;
+
+	if (uart_console(u)) {
+		writel(AUART_CTRL0_CLKGATE, u->membase + AUART_CTRL0_CLR);
+	} else {
+		/* reset the unit to a well known state */
+		mxs_auart_reset_assert(u);
+		mxs_auart_reset_deassert(u);
+	}
 
 	writel(AUART_CTRL0_CLKGATE, u->membase + AUART_CTRL0_CLR);
 
@@ -899,38 +987,98 @@ static void mxs_auart_shutdown(struct uart_port *u)
 	if (auart_dma_enabled(s))
 		mxs_auart_dma_exit(s);
 
-	writel(AUART_CTRL2_UARTEN, u->membase + AUART_CTRL2_CLR);
-
-	writel(AUART_INTR_RXIEN | AUART_INTR_RTIEN | AUART_INTR_CTSMIEN,
-			u->membase + AUART_INTR_CLR);
-
-	writel(AUART_CTRL0_CLKGATE, u->membase + AUART_CTRL0_SET);
+	if (uart_console(u)) {
+		writel(AUART_CTRL2_UARTEN, u->membase + AUART_CTRL2_CLR);
+		writel(AUART_INTR_RXIEN | AUART_INTR_RTIEN | AUART_INTR_CTSMIEN,
+				u->membase + AUART_INTR_CLR);
+		writel(AUART_CTRL0_CLKGATE, u->membase + AUART_CTRL0_SET);
+	} else {
+		mxs_auart_reset_assert(u);
+	}
 
 	clk_disable_unprepare(s->clk);
 }
 
 static unsigned int mxs_auart_tx_empty(struct uart_port *u)
 {
-	if ((readl(u->membase + AUART_STAT) &
-		 (AUART_STAT_TXFE | AUART_STAT_BUSY)) == AUART_STAT_TXFE)
+	unsigned long stat;
+
+	stat = readl(u->membase + AUART_STAT);
+	if ((stat & (AUART_STAT_BUSY | AUART_STAT_TXFE)) == AUART_STAT_TXFE)
 		return TIOCSER_TEMT;
 
 	return 0;
 }
 
+/*
+ * Flush the transmit buffer.
+ * Locking: called with port lock held and IRQs disabled.
+ */
+static void mxs_auart_flush_buffer(struct uart_port *u)
+{
+	struct mxs_auart_port *s = to_auart_port(u);
+	struct dma_chan *channel = s->tx_dma_chan;
+
+	if (auart_dma_enabled(s)) {
+		/* Avoid deadlock with the DMA engine callback */
+		spin_unlock(&s->port.lock);
+		dmaengine_terminate_all(channel);
+		spin_lock(&s->port.lock);
+	}
+	/* Wait for the FIFO to flush */
+	if (!mxs_auart_tx_empty(u))
+		msleep(u->timeout);
+}
+
 static void mxs_auart_start_tx(struct uart_port *u)
 {
 	struct mxs_auart_port *s = to_auart_port(u);
+	unsigned long ctrl = readl(u->membase + AUART_CTRL2);
+
+	ctrl |= AUART_CTRL2_TXE;
+	if (u->rs485.flags & SER_RS485_ENABLED) {
+		if (u->rs485.flags & SER_RS485_RTS_ON_SEND)
+			ctrl |= AUART_CTRL2_RTS;
+		else
+			ctrl &= ~AUART_CTRL2_RTS;
+
+		if (!(u->rs485.flags & SER_RS485_RX_DURING_TX))
+			ctrl &= ~AUART_CTRL2_RXE;
+	}
 
 	/* enable transmitter */
-	writel(AUART_CTRL2_TXE, u->membase + AUART_CTRL2_SET);
+	writel(ctrl, u->membase + AUART_CTRL2);
+
+	if ((u->rs485.flags & SER_RS485_ENABLED) &&
+			(u->rs485.delay_rts_before_send > 0))
+		mdelay(u->rs485.delay_rts_before_send);
 
 	mxs_auart_tx_chars(s);
 }
 
 static void mxs_auart_stop_tx(struct uart_port *u)
 {
-	writel(AUART_CTRL2_TXE, u->membase + AUART_CTRL2_CLR);
+	struct mxs_auart_port *s = to_auart_port(u);
+	unsigned long ctrl = readl(u->membase + AUART_CTRL2);
+
+	ctrl &= ~AUART_CTRL2_TXE;
+	if (u->rs485.flags & SER_RS485_ENABLED) {
+		if (!mxs_auart_tx_empty(&s->port))
+			udelay(s->port.timeout);
+
+		if (u->rs485.flags & SER_RS485_RTS_AFTER_SEND)
+			ctrl |= AUART_CTRL2_RTS;
+		else
+			ctrl &= ~AUART_CTRL2_RTS;
+
+		if (s->flags & MXS_AUART_RXE)
+			ctrl |= AUART_CTRL2_RXE;
+
+		if (u->rs485.delay_rts_after_send > 0)
+			mdelay(u->rs485.delay_rts_after_send);
+	}
+
+	writel(ctrl, u->membase + AUART_CTRL2);
 }
 
 static void mxs_auart_stop_rx(struct uart_port *u)
@@ -948,7 +1096,7 @@ static void mxs_auart_break_ctl(struct uart_port *u, int ctl)
 			     u->membase + AUART_LINECTRL_CLR);
 }
 
-static struct uart_ops mxs_auart_ops = {
+static const struct uart_ops mxs_auart_ops = {
 	.tx_empty       = mxs_auart_tx_empty,
 	.start_tx       = mxs_auart_start_tx,
 	.stop_tx	= mxs_auart_stop_tx,
@@ -959,6 +1107,7 @@ static struct uart_ops mxs_auart_ops = {
 	.get_mctrl      = mxs_auart_get_mctrl,
 	.startup	= mxs_auart_startup,
 	.shutdown       = mxs_auart_shutdown,
+	.flush_buffer	= mxs_auart_flush_buffer,
 	.set_termios    = mxs_auart_settermios,
 	.set_ldisc      = mxs_auart_set_ldisc,
 	.type	   	= mxs_auart_type,
@@ -1136,6 +1285,8 @@ static int serial_mxs_probe_dt(struct mxs_auart_port *s,
 		struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;
+	struct serial_rs485 *rs485conf = &(s->port.rs485);
+	u32 rs485_delay[2];
 	int ret;
 
 	if (!np)
@@ -1152,6 +1303,28 @@ static int serial_mxs_probe_dt(struct mxs_auart_port *s,
 	if (of_get_property(np, "fsl,uart-has-rtscts", NULL))
 		set_bit(MXS_AUART_RTSCTS, &s->flags);
 
+	rs485conf->flags = 0;
+
+	if (of_property_read_bool(np, "rs485-rts-active-high"))
+		rs485conf->flags |= SER_RS485_RTS_AFTER_SEND;
+	else
+		rs485conf->flags |= SER_RS485_RTS_ON_SEND;
+
+	if (of_property_read_u32_array(np, "rs485-rts-delay",
+			      rs485_delay, 2) == 0) {
+		rs485conf->delay_rts_before_send = rs485_delay[0];
+		rs485conf->delay_rts_after_send = rs485_delay[1];
+	} else {
+		rs485conf->delay_rts_before_send = 0;
+		rs485conf->delay_rts_after_send = 0;
+	}
+
+	if (of_property_read_bool(np, "rs485-rx-during-tx"))
+		rs485conf->flags |= SER_RS485_RX_DURING_TX;
+
+	if (of_property_read_bool(np, "linux,rs485-enabled-at-boot-time")) {
+		rs485conf->flags |= SER_RS485_ENABLED;
+	}
 	return 0;
 }
 
@@ -1291,7 +1464,7 @@ static int mxs_auart_probe(struct platform_device *pdev)
 
 	auart_port[s->port.line] = s;
 
-	mxs_auart_reset(&s->port);
+	mxs_auart_reset_deassert(&s->port);
 
 	ret = uart_add_one_port(&auart_driver, &s->port);
 	if (ret)

@@ -20,6 +20,7 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/export.h>
+#include <linux/of.h>
 #include <linux/vmalloc.h>
 
 #include "debug.h"
@@ -31,10 +32,13 @@ unsigned int debug_mask;
 static unsigned int suspend_mode;
 static unsigned int wow_mode;
 static unsigned int uart_debug;
-static unsigned int ath6kl_p2p;
+static unsigned int ath6kl_p2p = EINVAL;
 static unsigned int testmode;
 static unsigned int recovery_enable;
 static unsigned int heart_beat_poll;
+static unsigned int softmac_enable = EINVAL;
+static unsigned short locally_administered_bit;
+static unsigned short reg_domain = EINVAL;
 
 module_param(debug_mask, uint, 0644);
 module_param(suspend_mode, uint, 0644);
@@ -44,6 +48,9 @@ module_param(ath6kl_p2p, uint, 0644);
 module_param(testmode, uint, 0644);
 module_param(recovery_enable, uint, 0644);
 module_param(heart_beat_poll, uint, 0644);
+module_param(softmac_enable, uint, 0644);
+module_param(locally_administered_bit, ushort, 0644);
+module_param(reg_domain, ushort, 0644);
 MODULE_PARM_DESC(recovery_enable, "Enable recovery from firmware error");
 MODULE_PARM_DESC(heart_beat_poll,
 		 "Enable fw error detection periodic polling in msecs - Also set recovery_enable for this to be effective");
@@ -116,10 +123,23 @@ int ath6kl_core_init(struct ath6kl *ar, enum ath6kl_htc_type htc_type)
 	}
 
 	ar->testmode = testmode;
+#ifdef CONFIG_OF
+	if (softmac_enable == EINVAL) {
+		struct device_node *node;
+
+		node = of_find_compatible_node(NULL, NULL, "atheros,ath6kl");
+		if (node)
+			softmac_enable =
+			    of_property_read_bool(node,
+						  "ath6kl-softmac-enable");
+	}
+#endif
+	ar->softmac_enable = (softmac_enable == EINVAL) ? 0 : !!softmac_enable;
 
 	ret = ath6kl_init_fetch_firmwares(ar);
 	if (ret)
 		goto err_htc_cleanup;
+	ath6kl_mangle_mac_address(ar, locally_administered_bit);
 
 	/* FIXME: we should free all firmwares in the error cases below */
 
@@ -268,7 +288,36 @@ struct ath6kl *ath6kl_core_create(struct device *dev)
 	if (!ar)
 		return NULL;
 
-	ar->p2p = !!ath6kl_p2p;
+#ifdef CONFIG_OF
+	if (ath6kl_p2p == EINVAL) {
+		struct device_node *node;
+
+		node = of_find_compatible_node(NULL, NULL, "atheros,ath6kl");
+		if (node)
+			ath6kl_p2p =
+			    of_property_read_bool(node, "ath6kl-p2p-enable");
+	}
+
+	if (reg_domain == EINVAL) {
+		struct device_node *node;
+
+		node = of_find_compatible_node(NULL, NULL, "atheros,ath6kl");
+		if (node)
+			of_property_read_u16(node, "ath6kl-reg-domain",
+					&reg_domain);
+	}
+
+	if (!debug_mask) {
+		struct device_node *node;
+
+		node = of_find_compatible_node(NULL, NULL, "atheros,ath6kl");
+		if (node)
+			of_property_read_u32(node, "ath6kl-debug-mask",
+					&debug_mask);
+	}
+#endif
+	ar->reg_domain = (reg_domain == EINVAL) ? 0xffff : reg_domain;
+	ar->p2p = (ath6kl_p2p == EINVAL) ? 0 : !!ath6kl_p2p;
 	ar->dev = dev;
 
 	ar->vif_max = 1;

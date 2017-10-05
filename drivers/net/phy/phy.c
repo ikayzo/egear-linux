@@ -34,6 +34,7 @@
 #include <linux/mdio.h>
 #include <linux/io.h>
 #include <linux/uaccess.h>
+#include <linux/micrel_phy.h>
 #include <linux/atomic.h>
 
 #include <asm/irq.h>
@@ -391,20 +392,22 @@ int phy_mii_ioctl(struct phy_device *phydev, struct ifreq *ifr, int cmd)
 					if (phydev->autoneg == AUTONEG_ENABLE)
 						change_autoneg = true;
 					phydev->autoneg = AUTONEG_DISABLE;
+				} else {
+					phydev->autoneg = AUTONEG_ENABLE;
+					phydev->link_timeout = PHY_AN_TIMEOUT;
+				}
+				if (!phydev->autoneg) {
 					if (val & BMCR_FULLDPLX)
 						phydev->duplex = DUPLEX_FULL;
 					else
 						phydev->duplex = DUPLEX_HALF;
+
 					if (val & BMCR_SPEED1000)
 						phydev->speed = SPEED_1000;
 					else if (val & BMCR_SPEED100)
 						phydev->speed = SPEED_100;
-					else phydev->speed = SPEED_10;
-				}
-				else {
-					if (phydev->autoneg == AUTONEG_DISABLE)
-						change_autoneg = true;
-					phydev->autoneg = AUTONEG_ENABLE;
+					else
+						phydev->speed = SPEED_10;
 				}
 				break;
 			case MII_ADVERTISE:
@@ -785,6 +788,7 @@ void phy_state_machine(struct work_struct *work)
 			container_of(dwork, struct phy_device, state_queue);
 	bool needs_aneg = false, do_suspend = false;
 	int err = 0;
+	struct phy_driver *pdrv = phydev->drv;
 
 	mutex_lock(&phydev->lock);
 
@@ -831,6 +835,35 @@ void phy_state_machine(struct work_struct *work)
 			needs_aneg = true;
 		break;
 	case PHY_NOLINK:
+		/* If PHY is Micrel KSZ8051, KSZ8031, KSZ8021
+		 * and AN is enabled, disable AN, wait 500usec and
+		 * enable AN again to workaround PHY errata.
+		 */
+		if ( phydev->autoneg &&
+				((pdrv->phy_id & MICREL_PHY_ID_MASK) ==
+				 (PHY_ID_KSZ8031 & MICREL_PHY_ID_MASK)) ) {
+
+			if (0 == phydev->link_timeout--) {
+				int regval;
+
+				regval = phy_read(phydev, MII_BMCR);
+
+				/* Toggle ANE only for PHYs before rev A2 */
+				if ((pdrv->phy_id & 0x0000000F) < 6) {
+					phy_write(phydev, MII_BMCR,
+							regval & ~BMCR_ANENABLE);
+					udelay(500);
+					phy_write(phydev, MII_BMCR,
+							regval | BMCR_ANENABLE);
+				}
+				else {
+					phy_write(phydev, MII_BMCR,
+							regval | BMCR_ANRESTART);
+				}
+
+				phydev->link_timeout = PHY_AN_TIMEOUT;
+			}
+		}
 		err = phy_read_status(phydev);
 		if (err)
 			break;

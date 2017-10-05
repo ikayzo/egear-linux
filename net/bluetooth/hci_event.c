@@ -2276,6 +2276,9 @@ static void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 			hci_send_cmd(hdev, HCI_OP_CHANGE_CONN_PTYPE, sizeof(cp),
 				     &cp);
 		}
+
+		/* Change the ACL LINK POLICY to disable role switch */
+		hci_cfg_link_policy(conn);
 	} else {
 		conn->state = BT_CLOSED;
 		if (conn->type == ACL_LINK)
@@ -3765,6 +3768,8 @@ static void hci_sync_conn_complete_evt(struct hci_dev *hdev,
 
 		hci_debugfs_create_conn(conn);
 		hci_conn_add_sysfs(conn);
+		if (hdev->notify)
+			hdev->notify(hdev, HCI_NOTIFY_SCO_COMPLETE);
 		break;
 
 	case 0x10:	/* Connection Accept Timeout */
@@ -4318,6 +4323,7 @@ static void hci_phy_link_complete_evt(struct hci_dev *hdev,
 {
 	struct hci_ev_phy_link_complete *ev = (void *) skb->data;
 	struct hci_conn *hcon, *bredr_hcon;
+	struct amp_mgr *mgr;
 
 	BT_DBG("%s handle 0x%2.2x status 0x%2.2x", hdev->name, ev->phy_handle,
 	       ev->status);
@@ -4336,6 +4342,14 @@ static void hci_phy_link_complete_evt(struct hci_dev *hdev,
 		return;
 	}
 
+	BT_DBG("hcon %p mgr %p", hcon, hcon->amp_mgr);
+
+	mgr = hcon->amp_mgr;
+	if (!(mgr && mgr->l2cap_conn && mgr->l2cap_conn->hcon)) {
+		hci_dev_unlock(hdev);
+		BT_DBG("Amp Manager is not Initialized");
+		return;
+	}
 	bredr_hcon = hcon->amp_mgr->l2cap_conn->hcon;
 
 	hcon->state = BT_CONNECTED;

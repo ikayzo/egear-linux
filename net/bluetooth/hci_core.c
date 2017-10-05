@@ -1564,6 +1564,10 @@ static int hci_dev_do_close(struct hci_dev *hdev)
 			hdev->shutdown(hdev);
 	}
 
+	/* do not call cancel_delayed_work_sync for power_off here as
+	 * hci_dev_do_close function is called from work handler which might
+	 * cause deadlock. Instead to it in hci_unregister_dev
+	*/
 	cancel_delayed_work(&hdev->power_off);
 
 	hci_req_cancel(hdev, ENODEV);
@@ -1580,14 +1584,14 @@ static int hci_dev_do_close(struct hci_dev *hdev)
 	flush_work(&hdev->rx_work);
 
 	if (hdev->discov_timeout > 0) {
-		cancel_delayed_work(&hdev->discov_off);
+		cancel_delayed_work_sync(&hdev->discov_off);
 		hdev->discov_timeout = 0;
 		hci_dev_clear_flag(hdev, HCI_DISCOVERABLE);
 		hci_dev_clear_flag(hdev, HCI_LIMITED_DISCOVERABLE);
 	}
 
 	if (hci_dev_test_and_clear_flag(hdev, HCI_SERVICE_CACHE))
-		cancel_delayed_work(&hdev->service_cache);
+		cancel_delayed_work_sync(&hdev->service_cache);
 
 	cancel_delayed_work_sync(&hdev->le_scan_disable);
 	cancel_delayed_work_sync(&hdev->le_scan_restart);
@@ -1894,7 +1898,7 @@ int hci_dev_cmd(unsigned int cmd, void __user *arg)
 
 	case HCISETLINKMODE:
 		hdev->link_mode = ((__u16) dr.dev_opt) &
-					(HCI_LM_MASTER | HCI_LM_ACCEPT);
+					(HCI_LM_MASTER);
 		break;
 
 	case HCISETPTYPE:
@@ -3013,7 +3017,7 @@ struct hci_dev *hci_alloc_dev(void)
 
 	hdev->pkt_type  = (HCI_DM1 | HCI_DH1 | HCI_HV1);
 	hdev->esco_type = (ESCO_HV1);
-	hdev->link_mode = (HCI_LM_ACCEPT);
+	hdev->link_mode = (HCI_LM_MASTER); /* Allow DUT to be in MASTER role */
 	hdev->num_iac = 0x01;		/* One IAC support is mandatory */
 	hdev->io_capability = 0x03;	/* No Input No Output */
 	hdev->manufacturer = 0xffff;	/* Default to internal use */
@@ -3218,6 +3222,11 @@ void hci_unregister_dev(struct hci_dev *hdev)
 	hci_dev_do_close(hdev);
 
 	cancel_work_sync(&hdev->power_on);
+
+	/* hci_dev_do_close does not call cancel_delayed_work_sync on power_off
+	 * work, call it here while deregistration before wqs are destroyed
+	*/
+	cancel_delayed_work_sync(&hdev->power_off);
 
 	if (!test_bit(HCI_INIT, &hdev->flags) &&
 	    !hci_dev_test_flag(hdev, HCI_SETUP) &&

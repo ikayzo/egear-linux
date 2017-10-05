@@ -163,6 +163,15 @@ config EXYNOS_ADC
 	  of SoCs for drivers such as the touchscreen and hwmon to use to share
 	  this resource.
 
+config IMX7D_ADC
+	tristate "IMX7D ADC driver"
+	depends on ARCH_MXC || COMPILE_TEST
+	help
+	  Say yes here to build support for IMX7D ADC.
+
+	  This driver can also be built as a module. If so, the module will be
+	  called imx7d_adc.
+
 config LP8788_ADC
 	tristate "LP8788 ADC driver"
 	depends on MFD_LP8788
@@ -193,6 +202,16 @@ config MAX1363
 	  max11614, max11615, max11616, max11617, max11644, max11645,
 	  max11646, max11647) Provides direct access via sysfs and buffered
 	  data via the iio dev interface.
+
+config MCA_CC6UL_ADC
+	tristate "Digi ConnectCore 6UL Micro Controller Assist ADC"
+	select MFD_MCA_CC6UL
+	help
+	  If you say Y here you will get support for the ADCs in the Micro
+	  Controller Assist of Digi ConnectCore 6UL system-on-module.
+
+	  This driver can also be built as a module, if so, the module
+	  will be called "mca-cc6ul-adc".
 
 config MCP320X
 	tristate "Microchip Technology MCP3x01/02/04/08"
@@ -325,6 +344,15 @@ config TWL6030_GPADC
 
 	  This driver can also be built as a module. If so, the module will be
 	  called twl6030-gpadc.
+
+config AD2802A
+	tristate "2802A ADC driver"
+	depends on OF
+	help
+	  Say yes here to build support for 2802A ADC.
+
+	  This driver can also be built as a module. If so, the module will be
+	  called ad2802a.
 
 config VF610_ADC
 	tristate "Freescale vf610 ADC driver"

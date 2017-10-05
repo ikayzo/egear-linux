@@ -117,9 +117,11 @@ static struct usb_interface_descriptor rndis_control_intf = {
 	/* .bInterfaceNumber = DYNAMIC */
 	/* status endpoint is optional; this could be patched later */
 	.bNumEndpoints =	1,
-	.bInterfaceClass =	USB_CLASS_COMM,
-	.bInterfaceSubClass =   USB_CDC_SUBCLASS_ACM,
-	.bInterfaceProtocol =   USB_CDC_ACM_PROTO_VENDOR,
+	/* These are overridden to Windoze specific values */
+	/* This way, linux hosts will not detect the interface */
+	.bInterfaceClass =      USB_CLASS_MISC,
+	.bInterfaceSubClass =   0x04,
+	.bInterfaceProtocol =   0x01,
 	/* .iInterface = DYNAMIC */
 };
 

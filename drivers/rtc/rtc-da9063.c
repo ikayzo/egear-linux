@@ -42,6 +42,7 @@
 struct da9063_rtc {
 	struct rtc_device	*rtc_dev;
 	struct da9063		*hw;
+	int			irq_alarm;
 	struct rtc_time		alarm_time;
 	bool			rtc_sync;
 	int			alarm_year;
@@ -138,7 +139,7 @@ static int da9063_rtc_read_time(struct device *dev, struct rtc_time *tm)
 static int da9063_rtc_set_time(struct device *dev, struct rtc_time *tm)
 {
 	struct da9063_rtc *rtc = dev_get_drvdata(dev);
-	u8 data[RTC_DATA_LEN];
+	u8 data[RTC_DATA_LEN] = {0};
 	int ret;
 
 	da9063_tm_to_data(tm, data);
@@ -182,7 +183,7 @@ static int da9063_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 static int da9063_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 {
 	struct da9063_rtc *rtc = dev_get_drvdata(dev);
-	u8 data[RTC_DATA_LEN];
+	u8 data[RTC_DATA_LEN] = {0};
 	int ret;
 
 	da9063_tm_to_data(&alrm->time, data);
@@ -246,10 +247,14 @@ static int da9063_rtc_probe(struct platform_device *pdev)
 {
 	struct da9063 *da9063 = dev_get_drvdata(pdev->dev.parent);
 	struct da9063_rtc *rtc;
-	int irq_alarm;
 	u8 data[RTC_DATA_LEN];
 	int ret;
 
+	if (!da9063 || !da9063->dev->parent->of_node) {
+		return -EPROBE_DEFER;
+        }
+
+	/* Enable RTC hardware */
 	ret = regmap_update_bits(da9063->regmap, DA9063_REG_CONTROL_E,
 				 DA9063_RTC_EN, DA9063_RTC_EN);
 	if (ret < 0) {
@@ -314,22 +319,26 @@ static int da9063_rtc_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, rtc);
 
-	irq_alarm = platform_get_irq_byname(pdev, "ALARM");
-	ret = devm_request_threaded_irq(&pdev->dev, irq_alarm, NULL,
+	rtc->irq_alarm = platform_get_irq_byname(pdev, "ALARM");
+	ret = devm_request_threaded_irq(&pdev->dev, rtc->irq_alarm, NULL,
 					da9063_alarm_event,
 					IRQF_TRIGGER_LOW | IRQF_ONESHOT,
 					"ALARM", rtc);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to request ALARM IRQ %d: %d\n",
-			irq_alarm, ret);
+			rtc->irq_alarm, ret);
+		rtc->irq_alarm = -ENXIO;
 		goto err;
 	}
 
+	device_init_wakeup(&pdev->dev, 1);
 	rtc->hw = da9063;
 	rtc->rtc_dev = devm_rtc_device_register(&pdev->dev, DA9063_DRVNAME_RTC,
 					   &da9063_rtc_ops, THIS_MODULE);
 	if (IS_ERR(rtc->rtc_dev))
 		return PTR_ERR(rtc->rtc_dev);
+
+	rtc->rtc_dev->dev.of_node = pdev->dev.of_node;
 
 	da9063_data_to_tm(data, &rtc->alarm_time);
 	rtc->rtc_sync = false;
@@ -337,10 +346,33 @@ err:
 	return ret;
 }
 
+static int da9063_rtc_remove(struct platform_device *pdev)
+{
+	struct da9063_rtc *rtc = platform_get_drvdata(pdev);
+
+	if (rtc->irq_alarm >= 0)
+		free_irq(rtc->irq_alarm, rtc);
+
+	rtc_device_unregister(rtc->rtc_dev);
+	return 0;
+}
+
+#ifdef CONFIG_OF
+static const struct of_device_id dialog_dt_ids[] = {
+        { .compatible = "dlg,da9063-rtc", },
+        { /* sentinel */ }
+};
+MODULE_DEVICE_TABLE(of, dialog_dt_ids);
+#endif
+
 static struct platform_driver da9063_rtc_driver = {
 	.probe		= da9063_rtc_probe,
+	.remove		= da9063_rtc_remove,
 	.driver		= {
 		.name	= DA9063_DRVNAME_RTC,
+#ifdef CONFIG_OF
+                .of_match_table = dialog_dt_ids,
+#endif
 	},
 };
 

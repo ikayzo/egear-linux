@@ -1,0 +1,18 @@
+/*
+ * Copyright 2014 Etherios Wireless Design
+ *
+ * Device tree configuration for Gateway user input button
+ */
+
+/ {
+	gpio_keys {
+		compatible = "gpio-keys";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		button@3 {
+			label = "GPIO Key User";
+			linux,code = <28>;
+			gpios = <&gpio0 23 0>;
+		};
+	};
+};

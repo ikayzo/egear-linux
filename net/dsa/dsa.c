@@ -249,6 +249,11 @@ static int dsa_switch_setup_one(struct dsa_switch *ds, struct device *parent)
 			dst->rcv = brcm_netdev_ops.rcv;
 			break;
 #endif
+#ifdef CONFIG_NET_DSA_TAG_VID
+		case DSA_TAG_PROTO_VID:
+			dst->rcv = vid_netdev_ops.rcv;
+			break;
+#endif
 		case DSA_TAG_PROTO_NONE:
 			break;
 		default:
@@ -585,12 +590,8 @@ static int dsa_of_probe(struct device *dev)
 	int ret;
 
 	mdio = of_parse_phandle(np, "dsa,mii-bus", 0);
-	if (!mdio)
-		return -EINVAL;
 
-	mdio_bus = of_mdio_find_bus(mdio);
-	if (!mdio_bus)
-		return -EPROBE_DEFER;
+	mdio_bus = mdio ? of_mdio_find_bus(mdio) : NULL;
 
 	ethernet = of_parse_phandle(np, "dsa,ethernet", 0);
 	if (!ethernet)
@@ -623,7 +624,7 @@ static int dsa_of_probe(struct device *dev)
 		cd = &pd->chip[chip_index];
 
 		cd->of_node = child;
-		cd->host_dev = &mdio_bus->dev;
+		cd->host_dev = mdio_bus ? &mdio_bus->dev : NULL;
 
 		sw_addr = of_get_property(child, "reg", NULL);
 		if (!sw_addr)

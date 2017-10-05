@@ -34,6 +34,7 @@ config BT_HCIBTUSB_BCM
 
 config BT_HCIBTSDIO
 	tristate "HCI SDIO driver"
+	depends on !BT_HCIUART_IBS
 	depends on MMC
 	help
 	  Bluetooth HCI SDIO driver.
@@ -113,6 +114,17 @@ config BT_HCIUART_3WIRE
 	  errors and thereby making CTS/RTS lines unnecessary.
 
 	  Say Y here to compile support for Three-wire UART protocol.
+
+config BT_HCIUART_IBS
+	bool "HCI_IBS protocol support"
+	depends on BT_HCIUART
+	default n
+	help
+	  HCI_IBS (HCI In-Band Sleep) is a serial protocol for communication
+	  between Bluetooth device and host. This protocol is required for
+	  UART clock control for some Qualcomm Bluetooth devices.
+
+	  Say Y here to compile support for HCI_IBS protocol.
 
 config BT_HCIUART_INTEL
 	bool "Intel protocol support"
