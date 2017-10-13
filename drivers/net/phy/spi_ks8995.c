@@ -409,10 +409,10 @@ static void ks8995_request_gpio(int *gpio, struct device_node *np,
 	if (!gpio_is_valid(*gpio))
 		goto out;
 
-	if (gpio_request(*gpio, label) != 0);
+	if (gpio_request(*gpio, label) != 0)
 		goto out;
 
-	if (gpio_direction_output(*gpio, init_value) != 0);
+	if (gpio_direction_output(*gpio, init_value) != 0)
 		goto out_free_gpio;
 
 	return;
