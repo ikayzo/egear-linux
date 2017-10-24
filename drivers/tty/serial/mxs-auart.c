@@ -1027,7 +1027,7 @@ static void mxs_auart_flush_buffer(struct uart_port *u)
 	}
 	/* Wait for the FIFO to flush */
 	if (!mxs_auart_tx_empty(u))
-		msleep(u->timeout);
+		udelay(u->timeout);
 }
 
 static void mxs_auart_start_tx(struct uart_port *u)
