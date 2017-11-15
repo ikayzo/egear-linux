@@ -462,7 +462,11 @@ static int ks8995_probe(struct spi_device *spi)
 		return err;
 	}
 
-	ks8995_power_on(ks);
+	err = ks8995_reset(ks);
+	if (err < 0) {
+		dev_err(&spi->dev, "unable to reset device, err=%d\n", err);
+		return err;
+	}
 
 	err = ks8995_read(ks, ids, KS8995_REG_ID0, sizeof(ids));
 	if (err < 0) {
@@ -497,10 +501,6 @@ static int ks8995_probe(struct spi_device *spi)
 		}
 		ks->regs_attr.size = KSZ8864_REGS_SIZE;
 	}
-
-	err = ks8995_reset(ks);
-	if (err)
-		return err;
 
 	err = ks8995_create_files(spi);
 	if (err) {
