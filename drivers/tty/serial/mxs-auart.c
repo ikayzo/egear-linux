@@ -98,6 +98,7 @@
 #define AUART_CTRL2_RTS				(1 << 11)
 #define AUART_CTRL2_RXE				(1 << 9)
 #define AUART_CTRL2_TXE				(1 << 8)
+#define AUART_CTRL2_USE_LCR2			(1 << 6)
 #define AUART_CTRL2_UARTEN			(1 << 0)
 
 #define AUART_LINECTRL_BAUD_DIV_MAX		0x003fffc0
@@ -171,6 +172,8 @@ struct mxs_auart_port {
 	struct mctrl_gpios	*gpios;
 	int			gpio_irq[UART_GPIO_MAX];
 	bool			ms_irq_enabled;
+
+	unsigned long symbol_usecs;
 };
 
 static const struct platform_device_id mxs_auart_devtype[] = {
@@ -697,7 +700,7 @@ static void mxs_auart_settermios(struct uart_port *u,
 				 struct ktermios *old)
 {
 	struct mxs_auart_port *s = to_auart_port(u);
-	u32 bm, ctrl, ctrl2, div;
+	u32 bits, bm, ctrl, ctrl2, div;
 	unsigned int cflag, baud, baud_min, baud_max;
 	unsigned long flags;
 
@@ -724,10 +727,14 @@ static void mxs_auart_settermios(struct uart_port *u,
 		return;
 	}
 
+	/* bits per symbol */
+	bits = bm + 7;
+
 	ctrl |= AUART_LINECTRL_WLEN(bm);
 
 	/* parity */
 	if (cflag & PARENB) {
+		bits++;
 		ctrl |= AUART_LINECTRL_PEN;
 		if ((cflag & PARODD) == 0)
 			ctrl |= AUART_LINECTRL_EPS;
@@ -770,8 +777,30 @@ static void mxs_auart_settermios(struct uart_port *u,
 	}
 
 	/* figure out the stop bits requested */
-	if (cflag & CSTOPB)
+	if (cflag & CSTOPB) {
+		bits++;
 		ctrl |= AUART_LINECTRL_STP2;
+	}
+
+	/* set baud rate */
+	baud_min = DIV_ROUND_UP(u->uartclk * 32, AUART_LINECTRL_BAUD_DIV_MAX);
+	baud_max = u->uartclk * 32 / AUART_LINECTRL_BAUD_DIV_MIN;
+	baud = uart_get_baud_rate(u, termios, old, baud_min, baud_max);
+	div = DIV_ROUND_CLOSEST(u->uartclk * 32, baud);
+	ctrl |= AUART_LINECTRL_BAUD_DIVFRAC(div & 0x3F);
+	ctrl |= AUART_LINECTRL_BAUD_DIVINT(div >> 6);
+
+	/*
+	 * update the timeout before attempting to enable DMA,
+	 * because that can possibly change u->fifosize.
+	 */
+	uart_update_timeout(u, termios->c_cflag, baud);
+
+	/*
+	 * set the symbol time in usecs based on the bits per symbol,
+	 * adding an extra two bit-times for slop.
+	 */
+	s->symbol_usecs = DIV_ROUND_UP((bits + 2) * 1000000, baud);
 
 	/* figure out the hardware flow control settings */
 	ctrl2 &= ~(AUART_CTRL2_CTSEN | AUART_CTRL2_RTSEN);
@@ -798,18 +827,8 @@ static void mxs_auart_settermios(struct uart_port *u,
 
 	spin_lock_irqsave(&s->port.lock, flags);
 
-	/* set baud rate */
-	baud_min = DIV_ROUND_UP(u->uartclk * 32, AUART_LINECTRL_BAUD_DIV_MAX);
-	baud_max = u->uartclk * 32 / AUART_LINECTRL_BAUD_DIV_MIN;
-	baud = uart_get_baud_rate(u, termios, old, baud_min, baud_max);
-	div = DIV_ROUND_CLOSEST(u->uartclk * 32, baud);
-	ctrl |= AUART_LINECTRL_BAUD_DIVFRAC(div & 0x3F);
-	ctrl |= AUART_LINECTRL_BAUD_DIVINT(div >> 6);
-
 	writel(ctrl, u->membase + AUART_LINECTRL);
 	writel(ctrl2, u->membase + AUART_CTRL2);
-
-	uart_update_timeout(u, termios->c_cflag, baud);
 
 	/* prepare for the DMA RX. */
 	if (auart_dma_enabled(s) &&
@@ -1010,6 +1029,16 @@ static unsigned int mxs_auart_tx_empty(struct uart_port *u)
 	return 0;
 }
 
+static void mxs_auart_fifo_wait(struct mxs_auart_port *s)
+{
+	/* Wait for the FIFO to flush */
+	while (!mxs_auart_tx_empty(&s->port)) {
+		dev_dbg(s->dev, "FIFO not empty");
+		/* Delay for roughly 1 bit time */
+		udelay(DIV_ROUND_UP(s->symbol_usecs, 8));
+	}
+}
+
 /*
  * Flush the transmit buffer.
  * Locking: called with port lock held and IRQs disabled.
@@ -1025,9 +1054,13 @@ static void mxs_auart_flush_buffer(struct uart_port *u)
 		dmaengine_terminate_all(channel);
 		spin_lock(&s->port.lock);
 	}
-	/* Wait for the FIFO to flush */
-	if (!mxs_auart_tx_empty(u))
-		msleep(u->timeout);
+
+	/* Switching to LCR2 and back will flush the TX FIFO */
+	writel(AUART_CTRL2_USE_LCR2, u->membase + AUART_CTRL2_SET);
+	udelay(s->symbol_usecs);
+	writel(AUART_CTRL2_USE_LCR2, u->membase + AUART_CTRL2_CLR);
+
+	mxs_auart_fifo_wait(s);
 }
 
 static void mxs_auart_start_tx(struct uart_port *u)
@@ -1063,8 +1096,7 @@ static void mxs_auart_stop_tx(struct uart_port *u)
 
 	ctrl &= ~AUART_CTRL2_TXE;
 	if (u->rs485.flags & SER_RS485_ENABLED) {
-		if (!mxs_auart_tx_empty(&s->port))
-			udelay(s->port.timeout);
+		mxs_auart_fifo_wait(s);
 
 		if (u->rs485.flags & SER_RS485_RTS_AFTER_SEND)
 			ctrl |= AUART_CTRL2_RTS;
