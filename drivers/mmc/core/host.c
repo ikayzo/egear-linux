@@ -46,9 +46,26 @@ static void mmc_host_classdev_release(struct device *dev)
 	kfree(host);
 }
 
+static ssize_t timeouts_show(struct device *dev, struct device_attribute *dev_attr,
+			char *buf)
+{
+	struct mmc_host *host = cls_dev_to_mmc_host(dev);
+
+	return sprintf(buf, "%d\n", host->timeouts);
+}
+
+static DEVICE_ATTR_RO(timeouts);
+
+static struct attribute *mmc_host_attrs[] = {
+	&dev_attr_timeouts.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(mmc_host);
+
 static struct class mmc_host_class = {
 	.name		= "mmc_host",
 	.dev_release	= mmc_host_classdev_release,
+	.dev_groups	= mmc_host_groups,
 };
 
 int mmc_register_host_class(void)
