@@ -161,7 +161,7 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 
 		if (mrq->sbc && mrq->sbc->error) {
 			host->timeouts++;
-			pr_warning("%s: sbc req done <CMD%u>: %d: %08x %08x %08x %08x\n",
+			pr_debug("%s: sbc req done <CMD%u>: %d: %08x %08x %08x %08x\n",
 				mmc_hostname(host), mrq->sbc->opcode,
 				mrq->sbc->error,
 				mrq->sbc->resp[0], mrq->sbc->resp[1],
@@ -170,7 +170,7 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 
 		if (err) {
 			host->timeouts++;
-			pr_warning("%s: req done (CMD%u): %d: %08x %08x %08x %08x\n",
+			pr_debug("%s: req done (CMD%u): %d: %08x %08x %08x %08x\n",
 				mmc_hostname(host), cmd->opcode, err,
 				cmd->resp[0], cmd->resp[1],
 				cmd->resp[2], cmd->resp[3]);
